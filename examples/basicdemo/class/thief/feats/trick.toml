@@ -1,0 +1,8 @@
+name = "Trick"
+ranks = true
+uses = 1
+description = """
+Once per day per purchase, you may use Backstab without
+meeting the positional requirements as long as at least one
+other ally is engaging the target.
+"""

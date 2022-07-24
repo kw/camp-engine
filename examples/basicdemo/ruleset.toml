@@ -1,0 +1,10 @@
+name = "Basic Demo"
+id = "basicdemo"
+version = "0.1a"
+feature_model_def = "camp.engine.rules.basicdemo.models.FeatureDefinitions"
+
+[type_names]
+class = "Class"
+spell = "Spell"
+skill = "Skill"
+feat = "Feat"

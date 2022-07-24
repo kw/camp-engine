@@ -1,0 +1,41 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+default_language_version:
+  python: python3.10
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v4.3.0
+  hooks:
+    - id: trailing-whitespace
+    - id: fix-byte-order-marker
+    - id: mixed-line-ending
+      args: ['--fix=lf']
+    - id: end-of-file-fixer
+    - id: debug-statements
+    - id: check-json
+    - id: check-toml
+    - id: check-yaml
+      args: [--allow-multiple-documents]
+    - id: check-added-large-files
+    - id: check-case-conflict
+    - id: check-merge-conflict
+    - id: name-tests-test
+    - id: pretty-format-json
+      args: ['--autofix']
+- repo: https://github.com/psf/black
+  rev: 22.6.0
+  hooks:
+    - id: black
+- repo: https://github.com/pycqa/isort
+  rev: 5.10.1
+  hooks:
+  - id: isort
+- repo: https://github.com/pycqa/flake8
+  rev: 4.0.1
+  hooks:
+  - id: flake8
+- repo: https://github.com/pycqa/bandit
+  rev: 1.7.4
+  hooks:
+  - id: bandit
+    args: ['-c', 'bandit.yaml']

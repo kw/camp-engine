@@ -1,0 +1,13 @@
+type: class
+name: Magic User
+grants:
+  - reading
+levels:
+  - {strike: 1, spells: 1}
+  - {hp: 1, spells: 2}
+  - {spells: 2}
+  - {hp: 1, spells: 2}
+  - {spells: 2}
+description: >
+  This mage class is defined by the arcane language of YAML, which
+  grants power but also erodes the mind.

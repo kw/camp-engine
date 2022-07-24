@@ -1,0 +1,6 @@
+{
+  "cost": 4,
+  "description": "Grants the ability to wield martial weapons.",
+  "name": "Martial Weapon",
+  "requires": "simple-weapon"
+}

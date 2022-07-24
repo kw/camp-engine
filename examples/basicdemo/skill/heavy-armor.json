@@ -1,0 +1,6 @@
+{
+  "cost": 6,
+  "description": "Grants the ability to wear Heavy Armor pieces.",
+  "name": "Heavy Armor",
+  "requires": "medium-armor"
+}

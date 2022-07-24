@@ -1,0 +1,7 @@
+name = "Pawn"
+description = """
+You can sell treasure at half its base logistics price.
+This must be done at the logistics desk unless your
+game staff make other options available, such as an
+in-game fence NPC.
+"""

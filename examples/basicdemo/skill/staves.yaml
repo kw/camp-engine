@@ -1,0 +1,5 @@
+name: Staff Proficiency
+cost: 4
+requires: wands
+description: >
+  You gain proficiency with staves as both a melee weapon and a wand.

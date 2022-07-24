@@ -1,0 +1,13 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+ipython = "~=8.2"
+pre-commit = "*"
+pytest = "==7.1.2"
+
+[packages]
+pydantic = "==1.9.1"
+tomli = { version = "==2.0.1", markers = "python_version < '3.11'"}

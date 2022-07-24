@@ -1,0 +1,11 @@
+name = "Evasion"
+ranks = true
+uses = 1
+requires = 'dodge > 1'
+description = """
+When you would be affected by an Area of Effect attack,
+you may spend a use of [Dodge][dodge] to take half damage by calling **Evade!**.
+If the attack was delivered via packet or spell ball and it struck
+you, you may not Evade unless you negate the packet strike via a
+Guard or Protect.
+"""
