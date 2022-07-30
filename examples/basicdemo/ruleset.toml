@@ -1,7 +1,7 @@
 name = "Basic Demo"
 id = "basicdemo"
 version = "0.1a"
-feature_model_def = "camp.engine.rules.basicdemo.models.FeatureDefinitions"
+ruleset_model_def = "camp.engine.rules.basicdemo.models.Ruleset"
 
 [type_names]
 class = "Class"

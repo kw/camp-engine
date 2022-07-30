@@ -5,21 +5,21 @@ from typing import Literal
 
 from pydantic import Field
 
-from camp.engine.base import BaseFeature
-from camp.engine.base import FeatureIds
+from camp.engine.models import BaseFeatureDef
+from camp.engine.models import BaseRuleset
+from camp.engine.models import FeatureId
+from camp.engine.models import FeatureIds
+from camp.engine.models import ModelDefinition
 
 
-class ClassDef(BaseFeature):
+class ClassDef(BaseFeatureDef):
     type: Literal["class"]
     grants: FeatureIds = None
     description: str | None = None
     levels = list[dict[str, Any]]
 
-    class Config:
-        allow_mutation = False
 
-
-class SkillDef(BaseFeature):
+class SkillDef(BaseFeatureDef):
     type: Literal["skill"]
     cost: int
     ranks: bool | int = False
@@ -28,11 +28,8 @@ class SkillDef(BaseFeature):
     description: str | None = None
     bonuses: dict[str, int] | None = None
 
-    class Config:
-        allow_mutation = False
 
-
-class FeatDef(BaseFeature):
+class FeatDef(BaseFeatureDef):
     type: Literal["feat"]
     class_: str = Field(alias="class")
     ranks: bool | int = False
@@ -41,11 +38,8 @@ class FeatDef(BaseFeature):
     description: str | None = None
     bonuses: dict[str, int] | None = None
 
-    class Config:
-        allow_mutation = False
 
-
-class SpellDef(BaseFeature):
+class SpellDef(BaseFeatureDef):
     type: Literal["spell"]
     class_: str = Field(alias="class")
     level: int
@@ -55,3 +49,10 @@ class SpellDef(BaseFeature):
 
 
 FeatureDefinitions = ClassDef | SkillDef | FeatDef | SpellDef
+
+
+class Ruleset(BaseRuleset):
+    features: dict[FeatureId, FeatureDefinitions] = Field(default_factory=dict)
+
+    def feature_model_types(self) -> ModelDefinition:
+        return FeatureDefinitions

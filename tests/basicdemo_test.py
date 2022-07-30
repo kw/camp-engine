@@ -17,3 +17,17 @@ def test_load_ruleset():
     ruleset = loader.load_ruleset(BASICDEMO)
     assert not ruleset.bad_defs
     assert ruleset.features
+
+
+def test_serialize_ruleset():
+    """Test that the ruleset can be serialized and deserialized.
+
+    For this to work, the ruleset must properly indicate its
+    feature types on its ruleset subclass.
+    """
+    ruleset = loader.load_ruleset(BASICDEMO)
+    ruleset_json = ruleset.dump()
+    assert ruleset_json
+    reloaded_ruleset = loader.deserialize_ruleset(ruleset_json)
+    assert reloaded_ruleset.features
+    assert ruleset == reloaded_ruleset
