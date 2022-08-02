@@ -72,7 +72,9 @@ class BaseRuleset(pydantic.BaseModel, ABC):
         return CharacterSheet(id=id, ruleset_id=self.id)
 
     def dump(self) -> str:
-        return json.dumps(self.dict(by_alias=True))
+        return json.dumps(
+            self.dict(by_alias=True, exclude_unset=True, exclude_none=True)
+        )
 
     class Config:
         allow_mutation = False

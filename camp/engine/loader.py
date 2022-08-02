@@ -1,9 +1,9 @@
 import json
-import logging
 import pathlib
 import textwrap
 import types
 import typing
+import zipfile
 from copy import deepcopy
 
 import pydantic
@@ -24,8 +24,10 @@ M = typing.TypeVar("M", bound=pydantic.BaseModel)
 # Generic type representing a generator that returns models of type M or BadDefinitions.
 ModelGenerator = typing.Generator[M, None, None]
 
+PathLike = pathlib.Path | zipfile.Path
 
-def load_ruleset(path: str | pathlib.Path) -> models.BaseRuleset:
+
+def load_ruleset(path: str | PathLike) -> models.BaseRuleset:
     """Load the specified ruleset from disk by path.
 
     The ruleset path must be a directory containg file named
@@ -33,14 +35,15 @@ def load_ruleset(path: str | pathlib.Path) -> models.BaseRuleset:
 
     """
     if isinstance(path, str):
-        path = pathlib.Path(path)
-    ruleset: models.BaseRuleset = None
+        if path.endswith(".zip"):
+            path = zipfile.Path(zipfile.ZipFile(path))
+        else:
+            path = pathlib.Path(path)
     # First, look for the ruleset.
-    for subpath in (p for p in path.iterdir() if p.is_file()):
-        if subpath.match("ruleset.*"):
-            logging.info("Found ruleset definition: %s", subpath)
-            ruleset = _parse_ruleset(subpath)
-            break
+    ruleset_path = _find_file(path, stem="ruleset", depth=1)
+    if not ruleset_path:
+        raise ValueError(f"No ruleset file found within {path}")
+    ruleset = _parse_ruleset(ruleset_path)
     if not ruleset:
         raise ValueError(f"Path {path} does not contain a ruleset definition.")
     feature_defs = ruleset.feature_model_types()
@@ -53,7 +56,7 @@ def load_ruleset(path: str | pathlib.Path) -> models.BaseRuleset:
         )
     feature_dict: dict[str, models.BaseFeatureDef] = {}
     bad_defs: list[models.BadDefinition] = []
-    for subpath in (p for p in path.iterdir() if p.is_dir()):
+    for subpath in _iter_dirs(path):
         for model in _parse_directory(subpath, feature_defs):
             if isinstance(model, models.BadDefinition):
                 bad_defs.append(model)
@@ -104,22 +107,62 @@ def _parse_ruleset_dict(ruleset_dict: dict):
     return pydantic.parse_obj_as(ruleset_model, ruleset_dict)
 
 
-def _parse_directory(path: pathlib.Path, model: M, defaults=None) -> ModelGenerator:
+def _parse_directory(path: PathLike, model: M, defaults=None) -> ModelGenerator:
     defaults = defaults.copy() if defaults else {}
     # Load defaults. There's proably not more than one, but if so, okay I guess?
-    for subpath in path.glob("__defaults__.*"):
+    for subpath in _iter_files(path, stem="__defaults__"):
         for raw_defaults in _parse_raw(subpath):
             defaults.update(raw_defaults)
     # Now parse files based on the defaults.
-    for subpath in (p for p in path.iterdir() if p.is_file()):
-        if subpath.stem.startswith("_") or subpath.stem.startswith("."):
+    for subpath in _iter_files(path):
+        stem = _stem(subpath)
+        if stem.startswith("_") or stem.startswith("."):
             # Ignore any other "special" files.
             # We may define some with meanings in the future.
             continue
         yield from _parse(subpath, model, defaults)
     # Now parse subdirectories, passing our current defaults up.
-    for subpath in (p for p in path.iterdir() if p.is_dir()):
+    for subpath in _iter_dirs(path):
         yield from _parse_directory(subpath, model, defaults)
+
+
+def _iter_dirs(path: PathLike) -> typing.Generator[PathLike, None, None]:
+    for subpath in (p for p in path.iterdir() if p.is_dir()):
+        yield subpath
+
+
+def _iter_files(
+    path: PathLike, stem=None, suffix=None
+) -> typing.Generator[PathLike, None, None]:
+    for subpath in (p for p in path.iterdir() if p.is_file()):
+        if stem and _stem(subpath) != stem:
+            continue
+        if suffix and not _suffix(subpath) != suffix:
+            continue
+        yield subpath
+
+
+def _find_file(path: PathLike, stem=None, suffix=None, depth=0) -> PathLike | None:
+    for subpath in _iter_files(path, stem=stem, suffix=suffix):
+        return subpath
+
+    if depth >= 1:
+        for subpath in _iter_dirs(path):
+            recur_path = _find_file(subpath, stem=stem, suffix=suffix, depth=depth - 1)
+            if recur_path:
+                return recur_path
+
+
+def _stem(path: PathLike) -> str:
+    if isinstance(path, zipfile.Path):
+        return path.filename.stem
+    return path.stem
+
+
+def _suffix(path: PathLike) -> str:
+    if isinstance(path, zipfile.Path):
+        return path.filename.suffix
+    return path.suffix
 
 
 def _verify_feature_model_class(model: typing.Type) -> bool:
@@ -130,11 +173,11 @@ def _verify_feature_model_class(model: typing.Type) -> bool:
     return False
 
 
-def _parse(path: pathlib.Path, model: M, defaults=None) -> ModelGenerator:
+def _parse(path: PathLike, model: M, defaults=None) -> ModelGenerator:
     count = 0
     for raw_data in _parse_raw(path):
         if "id" not in raw_data:
-            raw_data["id"] = path.stem + (f"[{count}]" if count else "")
+            raw_data["id"] = _stem(path) + (f"[{count}]" if count else "")
         if raw_data["id"] == "__defaults__":
             # A YAML stream might have embedded defaults.
             # Add them to our existing defaults and skip the entry.
@@ -162,8 +205,8 @@ def _dict_merge(a: dict | None, b: dict | None) -> dict:
     return deepcopy((a or {}) | (b or {}))
 
 
-def _parse_raw(path: pathlib.Path) -> typing.Generator[dict, None, None]:
-    match path.suffix:
+def _parse_raw(path: PathLike) -> typing.Generator[dict, None, None]:
+    match _suffix(path):
         case ".toml":
             parser = _parse_toml
         case ".json":
@@ -175,17 +218,17 @@ def _parse_raw(path: pathlib.Path) -> typing.Generator[dict, None, None]:
     yield from parser(path)
 
 
-def _parse_toml(path: pathlib.Path) -> dict:
+def _parse_toml(path: PathLike) -> dict:
     with path.open("rb") as toml_file:
         yield tomllib.load(toml_file)
 
 
-def _parse_json(path: pathlib.Path) -> dict:
+def _parse_json(path: PathLike) -> dict:
     with path.open("rb") as json_file:
         yield json.load(json_file)
 
 
-def _parse_yaml(path: pathlib.Path) -> dict:
+def _parse_yaml(path: PathLike) -> dict:
     with path.open("rb") as yaml_file:
         yield from yaml.safe_load_all(yaml_file)
 

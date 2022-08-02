@@ -1,4 +1,7 @@
 import pathlib
+import shutil
+
+import pytest
 
 from camp.engine import loader
 
@@ -15,6 +18,16 @@ def test_load_ruleset():
     Other tests will cover more specific cases.
     """
     ruleset = loader.load_ruleset(BASICDEMO)
+    assert not ruleset.bad_defs
+    assert ruleset.features
+
+
+@pytest.mark.parametrize("format", ["zip"])
+def test_load_archive_ruleset(tmp_path_factory, format):
+    """Zipfile loader test."""
+    temp_base = tmp_path_factory.mktemp("camp-engine-test") / "basicdemo"
+    archive = shutil.make_archive(temp_base, format, root_dir=BASICDEMO)
+    ruleset = loader.load_ruleset(archive)
     assert not ruleset.bad_defs
     assert ruleset.features
 

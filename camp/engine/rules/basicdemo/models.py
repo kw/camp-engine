@@ -13,14 +13,14 @@ from camp.engine.models import ModelDefinition
 
 
 class ClassDef(BaseFeatureDef):
-    type: Literal["class"]
+    type: Literal["class"] = "class"
     grants: FeatureIds = None
     description: str | None = None
     levels = list[dict[str, Any]]
 
 
 class SkillDef(BaseFeatureDef):
-    type: Literal["skill"]
+    type: Literal["skill"] = "skill"
     cost: int
     ranks: bool | int = False
     uses: int | None = None
@@ -30,7 +30,7 @@ class SkillDef(BaseFeatureDef):
 
 
 class FeatDef(BaseFeatureDef):
-    type: Literal["feat"]
+    type: Literal["feat"] = "feat"
     class_: str = Field(alias="class")
     ranks: bool | int = False
     uses: int | None = None
@@ -40,7 +40,7 @@ class FeatDef(BaseFeatureDef):
 
 
 class SpellDef(BaseFeatureDef):
-    type: Literal["spell"]
+    type: Literal["spell"] = "spell"
     class_: str = Field(alias="class")
     level: int
     requires: FeatureIds = None
