@@ -14,9 +14,9 @@ from . import utils
 
 try:
     # TOML parser is part of the standard library starting at 3.11
-    import tomllib  # type: ignore
+    import tomllib  # type: ignore[reportMissingImports]
 except ImportError:
-    import tomli as tomllib
+    import tomli as tomllib  # type: ignore[no-redef]
 
 
 # Generic type for a particular model class.
@@ -85,7 +85,7 @@ def deserialize_ruleset(json_data: str) -> models.BaseRuleset:
     return _parse_ruleset_dict(ruleset_dict)
 
 
-def _parse_ruleset(path: pathlib.Path) -> models.BaseRuleset:
+def _parse_ruleset(path: PathLike) -> models.BaseRuleset:
     """Parse a ruleset from its ruleset.(toml|json|ya?ml) file.
 
     The actual type of the ruleset depends on its contents, but
@@ -151,21 +151,22 @@ def _find_file(path: PathLike, stem=None, suffix=None, depth=0) -> PathLike | No
             recur_path = _find_file(subpath, stem=stem, suffix=suffix, depth=depth - 1)
             if recur_path:
                 return recur_path
+    return None
 
 
 def _stem(path: PathLike) -> str:
     if isinstance(path, zipfile.Path):
-        return path.filename.stem
+        return path.filename.stem  # type: ignore[attr-defined]
     return path.stem
 
 
 def _suffix(path: PathLike) -> str:
     if isinstance(path, zipfile.Path):
-        return path.filename.suffix
+        return path.filename.suffix  # type: ignore[attr-defined]
     return path.suffix
 
 
-def _verify_feature_model_class(model: typing.Type) -> bool:
+def _verify_feature_model_class(model: models.ModelDefinition) -> bool:
     if isinstance(model, types.UnionType):
         return all(_verify_feature_model_class(c) for c in model.__args__)
     elif issubclass(model, pydantic.BaseModel):
@@ -218,17 +219,17 @@ def _parse_raw(path: PathLike) -> typing.Generator[dict, None, None]:
     yield from parser(path)
 
 
-def _parse_toml(path: PathLike) -> dict:
+def _parse_toml(path: PathLike) -> typing.Generator[dict, None, None]:
     with path.open("rb") as toml_file:
         yield tomllib.load(toml_file)
 
 
-def _parse_json(path: PathLike) -> dict:
+def _parse_json(path: PathLike) -> typing.Generator[dict, None, None]:
     with path.open("rb") as json_file:
         yield json.load(json_file)
 
 
-def _parse_yaml(path: PathLike) -> dict:
+def _parse_yaml(path: PathLike) -> typing.Generator[dict, None, None]:
     with path.open("rb") as yaml_file:
         yield from yaml.safe_load_all(yaml_file)
 

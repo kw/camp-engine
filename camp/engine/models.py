@@ -10,7 +10,7 @@ from uuid import uuid4
 import pydantic
 
 # The model class or union of classes to be parsed into models.
-ModelDefinition = typing.Type[pydantic.BaseModel] | types.UnionType
+ModelDefinition: typing.TypeAlias = typing.Type[pydantic.BaseModel] | types.UnionType
 FeatureId: typing.TypeAlias = str
 FeatureIds: typing.TypeAlias = FeatureId | list[FeatureId] | None
 
@@ -25,7 +25,7 @@ class BaseFeatureDef(pydantic.BaseModel):
         allow_mutation = False
 
     @property
-    def subfeatures(self) -> typing.Iterator[BaseFeatureDef]:
+    def subfeatures(self) -> typing.Iterable[BaseFeatureDef]:
         """Provide any subfeatures present in this feature definition.
 
         Subfeatures might include things like a class feature that provides

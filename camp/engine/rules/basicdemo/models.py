@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 from typing import Literal
+from typing import TypeAlias
 
 from pydantic import Field
 
@@ -48,11 +49,11 @@ class SpellDef(BaseFeatureDef):
     description: str | None = None
 
 
-FeatureDefinitions = ClassDef | SkillDef | FeatDef | SpellDef
+FeatureDefinitions: TypeAlias = ClassDef | SkillDef | FeatDef | SpellDef
 
 
 class Ruleset(BaseRuleset):
     features: dict[FeatureId, FeatureDefinitions] = Field(default_factory=dict)
 
     def feature_model_types(self) -> ModelDefinition:
-        return FeatureDefinitions
+        return FeatureDefinitions  # type: ignore[return-value]

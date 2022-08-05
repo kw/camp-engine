@@ -39,3 +39,9 @@ repos:
   hooks:
   - id: bandit
     args: ['-c', 'bandit.yaml']
+- repo: https://github.com/pre-commit/mirrors-mypy
+  rev: v0.971
+  hooks:
+  - id: mypy
+    args: [--namespace-packages, --explicit-package-bases, --no-strict-optional, --ignore-missing-imports, --show-error-codes]
+    additional_dependencies: ['types-PyYAML']
