@@ -8,16 +8,21 @@ from pydantic import Field
 
 from camp.engine.models import BaseFeatureDef
 from camp.engine.models import BaseRuleset
-from camp.engine.models import FeatureId
-from camp.engine.models import FeatureIds
+from camp.engine.models import CharacterSheet
+from camp.engine.models import Identifier
+from camp.engine.models import Identifiers
 from camp.engine.models import ModelDefinition
 
 
 class ClassDef(BaseFeatureDef):
     type: Literal["class"] = "class"
-    grants: FeatureIds = None
+    grants: Identifiers = None
     description: str | None = None
-    levels = list[dict[str, Any]]
+    levels: list[dict[str, Any]] | None = None
+
+    def post_validate(self, ruleset: BaseRuleset) -> None:
+        super().post_validate(ruleset)
+        ruleset.validate_identifiers(self.grants)
 
 
 class SkillDef(BaseFeatureDef):
@@ -25,9 +30,14 @@ class SkillDef(BaseFeatureDef):
     cost: int
     ranks: bool | int = False
     uses: int | None = None
-    requires: FeatureIds = None
     description: str | None = None
     bonuses: dict[str, int] | None = None
+    has_text: bool = False
+
+    def post_validate(self, ruleset: BaseRuleset) -> None:
+        super().post_validate(ruleset)
+        if self.bonuses:
+            ruleset.validate_identifiers(list(self.bonuses.keys()))
 
 
 class FeatDef(BaseFeatureDef):
@@ -35,25 +45,36 @@ class FeatDef(BaseFeatureDef):
     class_: str = Field(alias="class")
     ranks: bool | int = False
     uses: int | None = None
-    requires: FeatureIds = None
     description: str | None = None
     bonuses: dict[str, int] | None = None
+
+    def post_validate(self, ruleset: BaseRuleset) -> None:
+        super().post_validate(ruleset)
+        ruleset.validate_identifiers(self.class_)
+        if self.bonuses:
+            ruleset.validate_identifiers(list(self.bonuses.keys()))
 
 
 class SpellDef(BaseFeatureDef):
     type: Literal["spell"] = "spell"
     class_: str = Field(alias="class")
     level: int
-    requires: FeatureIds = None
     call: str
     description: str | None = None
+
+    def post_validate(self, ruleset: BaseRuleset) -> None:
+        super().post_validate(ruleset)
+        ruleset.validate_identifiers(self.class_)
 
 
 FeatureDefinitions: TypeAlias = ClassDef | SkillDef | FeatDef | SpellDef
 
 
 class Ruleset(BaseRuleset):
-    features: dict[FeatureId, FeatureDefinitions] = Field(default_factory=dict)
+    features: dict[Identifier, FeatureDefinitions] = Field(default_factory=dict)
 
     def feature_model_types(self) -> ModelDefinition:
         return FeatureDefinitions  # type: ignore[return-value]
+
+    def new_character(self, *args, **attributes) -> CharacterSheet:
+        return super().new_character(*args, **attributes)

@@ -27,12 +27,22 @@ ModelGenerator = typing.Generator[M, None, None]
 PathLike = pathlib.Path | zipfile.Path
 
 
-def load_ruleset(path: str | PathLike) -> models.BaseRuleset:
+def load_ruleset(
+    path: str | PathLike, with_bad_defs: bool = True
+) -> models.BaseRuleset:
     """Load the specified ruleset from disk by path.
 
     The ruleset path must be a directory containg file named
     "ruleset" with a json, toml, or yaml/yml extension.
 
+    Args:
+        path: Path to a directory that contains a ruleset file.
+            Alternatively, a path to a zipfile that contains a ruleset
+            file and additional ruleset data.
+        with_bad_defs: If true (the default), will not raise an exception
+            if a feature definition file has a bad definition. Instead,
+            the returned ruleset will have its `bad_defs` property populated
+            with BadDefinition models.
     """
     if isinstance(path, str):
         if path.endswith(".zip"):
@@ -57,7 +67,9 @@ def load_ruleset(path: str | PathLike) -> models.BaseRuleset:
     feature_dict: dict[str, models.BaseFeatureDef] = {}
     bad_defs: list[models.BadDefinition] = []
     for subpath in _iter_dirs(path):
-        for model in _parse_directory(subpath, feature_defs):
+        for model in _parse_directory(
+            subpath, feature_defs, with_bad_defs=with_bad_defs
+        ):
             if isinstance(model, models.BadDefinition):
                 bad_defs.append(model)
             elif model.id in ruleset.features:
@@ -72,12 +84,30 @@ def load_ruleset(path: str | PathLike) -> models.BaseRuleset:
                 )
             else:
                 feature_dict[model.id] = model
-    return ruleset.copy(
+    ruleset = ruleset.copy(
         update={
             "features": ruleset.features | feature_dict,
             "bad_defs": bad_defs,
         }
     )
+    broken_features: set[str] = set()
+    for id, feature in ruleset.features.items():
+        try:
+            feature.post_validate(ruleset)
+        except Exception as exc:
+            ruleset.bad_defs.append(
+                models.BadDefinition(
+                    path=feature.def_path,
+                    data=feature.json(),
+                    raw_data=None,
+                    exception_type=repr(type(exc)),
+                    exception_message=str(exc),
+                )
+            )
+            broken_features.add(id)
+    for id in broken_features:
+        del ruleset.features[id]
+    return ruleset
 
 
 def deserialize_ruleset(json_data: str) -> models.BaseRuleset:
@@ -107,7 +137,9 @@ def _parse_ruleset_dict(ruleset_dict: dict):
     return pydantic.parse_obj_as(ruleset_model, ruleset_dict)
 
 
-def _parse_directory(path: PathLike, model: M, defaults=None) -> ModelGenerator:
+def _parse_directory(
+    path: PathLike, model: M, with_bad_defs: bool = True, defaults=None
+) -> ModelGenerator:
     defaults = defaults.copy() if defaults else {}
     # Load defaults. There's proably not more than one, but if so, okay I guess?
     for subpath in _iter_files(path, stem="__defaults__"):
@@ -120,10 +152,14 @@ def _parse_directory(path: PathLike, model: M, defaults=None) -> ModelGenerator:
             # Ignore any other "special" files.
             # We may define some with meanings in the future.
             continue
-        yield from _parse(subpath, model, defaults)
+        yield from _parse(
+            subpath, model, with_bad_defs=with_bad_defs, defaults=defaults
+        )
     # Now parse subdirectories, passing our current defaults up.
     for subpath in _iter_dirs(path):
-        yield from _parse_directory(subpath, model, defaults)
+        yield from _parse_directory(
+            subpath, model, with_bad_defs=with_bad_defs, defaults=defaults
+        )
 
 
 def _iter_dirs(path: PathLike) -> typing.Generator[PathLike, None, None]:
@@ -174,7 +210,9 @@ def _verify_feature_model_class(model: models.ModelDefinition) -> bool:
     return False
 
 
-def _parse(path: PathLike, model: M, defaults=None) -> ModelGenerator:
+def _parse(
+    path: PathLike, model: M, with_bad_defs: bool = True, defaults=None
+) -> ModelGenerator:
     count = 0
     for raw_data in _parse_raw(path):
         if "id" not in raw_data:
@@ -191,8 +229,17 @@ def _parse(path: PathLike, model: M, defaults=None) -> ModelGenerator:
             data = _dict_merge(defaults, raw_data)
             data["def_path"] = str(path)
             yield pydantic.parse_obj_as(model, data)
-        except ValueError as exc:
-            yield models.BadDefinition(path, data, raw_data, exc)
+        except pydantic.ValidationError as exc:
+            if with_bad_defs:
+                yield models.BadDefinition(
+                    path=str(path),
+                    data=data,
+                    raw_data=raw_data,
+                    exception_type=repr(type(exc)),
+                    exception_message=str(exc),
+                )
+            else:
+                raise
 
 
 def _dict_merge(a: dict | None, b: dict | None) -> dict:

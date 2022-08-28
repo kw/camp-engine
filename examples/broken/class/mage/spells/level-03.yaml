@@ -1,0 +1,32 @@
+id: __defaults__
+type: spell
+class: mage
+---
+id: fly
+name: Fly
+call: I'm a bird look at me!
+description: >
+  You gain the ability to fly. You must have empty hands and flap both
+  arms while doing so. While flying, you are immune to melee attacks
+  (call "Flying" as the defense), but can still be struck by ranged
+  weapons and packet attacks. If you stop flapping your arms or try to
+  interact with any object, the effect ends.
+---
+id: fireball
+name: Fireball
+call: I evoke a fireball!
+description: >
+  Hurl a spell ball that has a 30-foot string attached. When it lands
+  or strikes something, call "Hold for Fireball!".
+  Everything within a 30-foot radius of where the ball landed (use the
+  string for reference) takes 10 by Flame. Characters struck with the
+  ball itself can't use use area-of-attack defenses such as Evasion
+---
+id: revivify
+name: Revivify
+level: 3
+class: cleric  # There is no cleric class
+call: I call upon lighting to revive the recently deceased!
+description: >
+  If used on a dead character within 5 minutes of their death, they
+  are revived with 1 HP.

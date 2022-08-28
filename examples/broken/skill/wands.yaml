@@ -1,0 +1,5 @@
+name: Wand Proficiency
+requires: reading
+description: >
+  When wielding a wand in your off-hand, your damaging packet attacks
+  deal 1 extra damage.

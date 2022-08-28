@@ -3,8 +3,16 @@ id = "basicdemo"
 version = "0.1a"
 ruleset_model_def = "camp.engine.rules.basicdemo.models.Ruleset"
 
-[type_names]
+
+[name_overrides]
 class = "Class"
 spell = "Spell"
 skill = "Skill"
 feat = "Feat"
+sp = "Skill Points"
+strike = "Strike Damage"
+spells = "Spells Known"
+powers = "Powers Known"
+backstab = "Backstab Damage"
+hp = "HP"
+armor = "Armor"

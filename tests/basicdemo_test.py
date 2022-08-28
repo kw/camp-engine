@@ -7,6 +7,7 @@ from camp.engine import loader
 
 EXAMPLES = pathlib.Path(__file__).parent.parent / "examples"
 BASICDEMO = EXAMPLES / "basicdemo"
+BROKEN = EXAMPLES / "broken"
 
 
 def test_load_ruleset():
@@ -20,6 +21,18 @@ def test_load_ruleset():
     ruleset = loader.load_ruleset(BASICDEMO)
     assert not ruleset.bad_defs
     assert ruleset.features
+
+
+def test_load_broken_ruleset():
+    """Test that broken things are detected.
+
+    A separate directory called "broken" contains
+    feature definitions that are all broken in some way,
+    so loading it should produce bad_defs but not features.
+    """
+    ruleset = loader.load_ruleset(BROKEN)
+    assert ruleset.bad_defs
+    assert not ruleset.features
 
 
 @pytest.mark.parametrize("format", ["zip"])
