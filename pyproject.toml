@@ -1,3 +1,33 @@
+[project]
+name = 'camp-engine'
+version = '0.0.1'
+authors = [
+    { name="Ken Moriarty", email="kwatford@gmail.com"},
+]
+description = "Rules engines for the Camp app"
+readme = "README.md"
+license = { file="LICENSE" }
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "pydantic ~= 1.9",
+    "tomli ~= 2.0; python_version<'3.11'"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/kw/camp-engine"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
 [tool.isort]
 profile = "black"
 force_single_line = true
+
+[tool.pytest.ini_options]
+python_files = ["tests.py", "test_*.py", "*_tests.py", "*_test.py"]
+pythonpath = ["src"]
+testpaths = ["tests"]
