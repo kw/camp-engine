@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from importlib import import_module
 from typing import Any
+from typing import Iterable
 
 
 def import_name(name: str) -> Any:
@@ -27,3 +28,14 @@ def import_name(name: str) -> Any:
     else:
         module = import_module(module_name)
     return getattr(module, attrib_name)
+
+
+def maybe_iter(value):
+    if not value:
+        return
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, Iterable):
+        yield from value
+    else:
+        yield value

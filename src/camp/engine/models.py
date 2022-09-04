@@ -32,6 +32,7 @@ class BaseFeatureDef(BaseModel):
     requires: Requirements = None
     def_path: str | None = None
     tags: set[str] = pydantic.Field(default_factory=set)
+    description: str | None = None
 
     @classmethod
     def default_name(cls) -> str:
@@ -90,7 +91,8 @@ class BaseRuleset(BaseModel, ABC):
     id: str
     name: str
     version: str
-    ruleset_model_def: str
+    ruleset: str | None = None
+    ruleset_model_def: str | None = None
     features: dict[Identifier, BaseFeatureDef] = pydantic.Field(default_factory=dict)
     bad_defs: list[BadDefinition] = pydantic.Field(default_factory=list)
 

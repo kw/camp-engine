@@ -17,7 +17,6 @@ from camp.engine.models import ModelDefinition
 class ClassDef(BaseFeatureDef):
     type: Literal["class"] = "class"
     grants: Identifiers = None
-    description: str | None = None
     levels: list[dict[str, Any]] | None = None
 
     def post_validate(self, ruleset: BaseRuleset) -> None:
@@ -30,7 +29,6 @@ class SkillDef(BaseFeatureDef):
     cost: int
     ranks: bool | int = False
     uses: int | None = None
-    description: str | None = None
     bonuses: dict[str, int] | None = None
     has_text: bool = False
 
@@ -45,7 +43,6 @@ class FeatDef(BaseFeatureDef):
     class_: str = Field(alias="class")
     ranks: bool | int = False
     uses: int | None = None
-    description: str | None = None
     bonuses: dict[str, int] | None = None
 
     def post_validate(self, ruleset: BaseRuleset) -> None:
@@ -60,7 +57,6 @@ class SpellDef(BaseFeatureDef):
     class_: str = Field(alias="class")
     level: int
     call: str
-    description: str | None = None
 
     def post_validate(self, ruleset: BaseRuleset) -> None:
         super().post_validate(ruleset)

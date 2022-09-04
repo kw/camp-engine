@@ -1,0 +1,27 @@
+type: class
+name: Caster Class A
+starting_features:
+  - caster-starting-a1
+  - caster-starting-a2
+  - starting-feature-a
+multiclass_features:
+  - caster-starting-a2
+  - multiclass-feature-a
+class_features:
+  - name: Starting Feature A
+    id: starting-feature-a
+    description: It's a cool feature, but for casters
+  - name: Multiclass Feature A
+    id: multiclass-feature-a
+    description: It's a less cool feature, but for casters
+level_table_columns:
+  spikes: {name: Spikes, type: attribute}
+  cp: {name: CP, type: currency}
+levels:
+  1: {spikes: 0, cp: 0}
+  2: {spikes: 0, cp: 2}
+  3: {spikes: 0, cp: 4}
+  4: {spikes: 0, cp: 6}
+  5: {spikes: 1, cp: 8}
+  6: {spikes: 1, cp: 10}
+  7: {spikes: 1, cp: 12}

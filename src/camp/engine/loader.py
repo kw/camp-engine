@@ -126,11 +126,15 @@ def _parse_ruleset(path: PathLike) -> models.BaseRuleset:
 
 
 def _parse_ruleset_dict(ruleset_dict: dict):
-    if "ruleset_model_def" not in ruleset_dict:
+    if "ruleset_model_def" not in ruleset_dict and "ruleset" not in ruleset_dict:
         raise ValueError(
-            "Invalid ruleset definition, does not specifiy ruleset_model_def"
+            "Invalid ruleset definition, does not specifiy ruleset model definition"
         )
-    ruleset_def: str = ruleset_dict["ruleset_model_def"]
+    ruleset_def: str
+    if "ruleset_model_def" in ruleset_dict:
+        ruleset_def = ruleset_dict["ruleset_model_def"]
+    elif "ruleset" in ruleset_dict:
+        ruleset_def = ruleset_dict["ruleset"] + ".models.Ruleset"
     ruleset_model = utils.import_name(ruleset_def)
     if not issubclass(ruleset_model, models.BaseRuleset):
         raise ValueError(f"{ruleset_def} does not implement BaseRuleset")
@@ -228,7 +232,9 @@ def _parse(
         try:
             data = _dict_merge(defaults, raw_data)
             data["def_path"] = str(path)
-            yield pydantic.parse_obj_as(model, data)
+            obj = pydantic.parse_obj_as(model, data)
+            yield obj
+            yield from obj.subfeatures
         except pydantic.ValidationError as exc:
             if with_bad_defs:
                 yield models.BadDefinition(

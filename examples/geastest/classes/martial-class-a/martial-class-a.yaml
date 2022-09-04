@@ -1,0 +1,27 @@
+type: class
+name: Martial Class A
+starting_features:
+  - martial-starting-a1
+  - martial-starting-a2
+  - starting-feature-a
+multiclass_features:
+  - martial-starting-a2
+  - multiclass-feature-a
+class_features:
+  - name: Starting Feature A
+    id: starting-feature-a
+    description: It's a cool feature.
+  - name: Multiclass Feature A
+    id: multiclass-feature-a
+    description: It's a less cool feature
+level_table_columns:
+  spikes: {name: Spikes, type: attribute}
+  cp: {name: CP, type: currency}
+levels:
+  1: {spikes: 0, cp: 0}
+  2: {spikes: 1, cp: 2}
+  3: {spikes: 1, cp: 4}
+  4: {spikes: 2, cp: 6}
+  5: {spikes: 2, cp: 8}
+  6: {spikes: 3, cp: 10}
+  7: {spikes: 3, cp: 12}

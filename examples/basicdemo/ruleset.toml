@@ -1,7 +1,7 @@
 name = "Basic Demo"
 id = "basicdemo"
 version = "0.1a"
-ruleset_model_def = "camp.engine.rules.basicdemo.models.Ruleset"
+ruleset = "camp.engine.rules.basicdemo"
 
 
 [name_overrides]
