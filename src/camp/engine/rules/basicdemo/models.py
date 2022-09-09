@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from typing import Any
+from typing import Iterable
 from typing import Literal
+from typing import Type
 from typing import TypeAlias
 
 from pydantic import Field
 
+from camp.engine.models import BaseCharacter
 from camp.engine.models import BaseFeatureDef
 from camp.engine.models import BaseRuleset
-from camp.engine.models import CharacterSheet
+from camp.engine.models import FeatureEntry
 from camp.engine.models import Identifier
 from camp.engine.models import Identifiers
 from camp.engine.models import ModelDefinition
@@ -66,11 +69,20 @@ class SpellDef(BaseFeatureDef):
 FeatureDefinitions: TypeAlias = ClassDef | SkillDef | FeatDef | SpellDef
 
 
+class Character(BaseCharacter):
+    def features(self) -> Iterable[FeatureEntry]:
+        return []
+
+    def get_feature(self, id) -> list[FeatureEntry] | None:
+        return None
+
+
 class Ruleset(BaseRuleset):
     features: dict[Identifier, FeatureDefinitions] = Field(default_factory=dict)
 
     def feature_model_types(self) -> ModelDefinition:
         return FeatureDefinitions  # type: ignore[return-value]
 
-    def new_character(self, *args, **attributes) -> CharacterSheet:
-        return super().new_character(*args, **attributes)
+    @property
+    def sheet_type(self) -> Type[Character]:
+        return Character

@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Iterable
 from typing import Literal
+from typing import Type
 from typing import TypeAlias
 
 from pydantic import Field
+from pydantic import PrivateAttr
 
+from camp.engine.models import BaseCharacter
 from camp.engine.models import BaseFeatureDef
 from camp.engine.models import BaseModel
 from camp.engine.models import BaseRuleset
-from camp.engine.models import CharacterSheet
+from camp.engine.models import FeatureEntry
 from camp.engine.models import Identifier
 from camp.engine.models import Identifiers
 from camp.engine.models import ModelDefinition
@@ -91,6 +95,32 @@ class SpellDef(BaseFeatureDef):
 FeatureDefinitions: TypeAlias = ClassDef | ClassFeatureDef | SkillDef | SpellDef
 
 
+class Character(BaseCharacter):
+    classes: list[FeatureEntry] = Field(default_factory=list)
+    classfeatures: list[FeatureEntry] = Field(default_factory=list)
+    breeds: list[FeatureEntry] = Field(default_factory=list)
+    skills: list[FeatureEntry] = Field(default_factory=list)
+    _features: dict[Identifier, list[FeatureEntry]] | None = PrivateAttr(default=None)
+
+    def _init_features(self):
+        if self._features is None:
+            self._features = defaultdict(list)
+            for f in self.features():
+                self._features[f.id].append(f)
+
+    def features(self) -> Iterable[FeatureEntry]:
+        yield from self.classes
+        yield from self.classfeatures
+        yield from self.breeds
+        yield from self.skills
+
+    def get_feature(self, id) -> list[FeatureEntry] | None:
+        self._init_features()
+        if id not in self._features:
+            return None
+        return self._features[id]
+
+
 class Ruleset(BaseRuleset):
     features: dict[Identifier, FeatureDefinitions] = Field(default_factory=dict)
     base_xp: int = 0
@@ -104,5 +134,6 @@ class Ruleset(BaseRuleset):
     def feature_model_types(self) -> ModelDefinition:
         return FeatureDefinitions  # type: ignore[return-value]
 
-    def new_character(self, *args, **attributes) -> CharacterSheet:
-        return super().new_character(*args, **attributes)
+    @property
+    def sheet_type(self) -> Type[BaseCharacter]:
+        return Character
