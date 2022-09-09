@@ -6,9 +6,12 @@ import types
 import typing
 from abc import ABC
 from abc import abstractmethod
+from abc import abstractproperty
+from typing import Iterable
 from uuid import uuid4
 
 import pydantic
+from packaging import version
 
 NON_WORD = re.compile(r"[^\w-]+")
 
@@ -21,7 +24,6 @@ Requirements: typing.TypeAlias = str | list[str] | None
 
 class BaseModel(pydantic.BaseModel):
     class Config:
-        allow_mutation = False
         extra = pydantic.Extra.forbid
 
 
@@ -46,7 +48,7 @@ class BaseFeatureDef(BaseModel):
         return cls.__fields__["type"].type_.args[0]
 
     @property
-    def subfeatures(self) -> typing.Iterable[BaseFeatureDef]:
+    def subfeatures(self) -> Iterable[BaseFeatureDef]:
         """Provide any subfeatures present in this feature definition.
 
         Subfeatures might include things like a class feature that provides
@@ -90,7 +92,7 @@ class AttributeDef(BaseModel):
 class BaseRuleset(BaseModel, ABC):
     id: str
     name: str
-    version: str
+    version: str = "0.0a"
     ruleset: str | None = None
     ruleset_model_def: str | None = None
     features: dict[Identifier, BaseFeatureDef] = pydantic.Field(default_factory=dict)
@@ -116,9 +118,9 @@ class BaseRuleset(BaseModel, ABC):
             if key not in self._display_names:
                 self._display_names[key] = name
 
-    @property
-    def sheet_type(self) -> typing.Type[CharacterSheet]:
-        return CharacterSheet
+    @abstractproperty
+    def sheet_type(self) -> typing.Type[BaseCharacter]:
+        ...
 
     @property
     def display_names(self) -> dict[str, str]:
@@ -140,10 +142,14 @@ class BaseRuleset(BaseModel, ABC):
     def feature_model_types(self) -> ModelDefinition:
         ...
 
-    def new_character(self, **data) -> CharacterSheet:
-        return self.sheet_type(ruleset_id=self.id, _ruleset=self, **data)
+    def new_character(self, **data) -> BaseCharacter:
+        character = self.sheet_type(
+            ruleset_id=self.id, ruleset_version=self.version, **data
+        )
+        character._ruleset = self
+        return character
 
-    def load_character(self, data: dict) -> CharacterSheet:
+    def load_character(self, data: dict) -> BaseCharacter:
         """Load the given character data with this ruleset.
 
         Returns:
@@ -162,7 +168,8 @@ class BaseRuleset(BaseModel, ABC):
     def update_data(self, data: dict) -> dict:
         """If the data is from a different but compatible rules version, update it.
 
-        The default behavior is to reject any character data made with a different ruleset ID.
+        The default behavior is to reject any character data made with a different ruleset ID,
+        and assume newer versions are backward (but not forward).
 
         Raises:
             ValueError: if the character is not compatible with this ruleset.
@@ -172,6 +179,11 @@ class BaseRuleset(BaseModel, ABC):
         if data["ruleset_id"] != self.id:
             raise ValueError(
                 f'Can not load character id={data["id"]}, ruleset={data["ruleset_id"]} with ruleset {self.id}'
+            )
+        if version.parse(self.version) < version.parse(data["ruleset_version"]):
+            raise ValueError(
+                f'Can not load character id={data["id"]}, ruleset={data["ruleset_id"]} v{data["ruleset_version"]}'
+                f" with ruleset {self.id} v{self.version}"
             )
         return data
 
@@ -218,7 +230,7 @@ class BaseRuleset(BaseModel, ABC):
                 raise ValueError(f'Required identifier "{id}" not found in ruleset.')
 
 
-class CharacterSheet(BaseModel):
+class BaseCharacter(BaseModel, ABC):
     """Represents a character sheet.
 
     Individual rulesets can override this to add fields for
@@ -244,16 +256,23 @@ class CharacterSheet(BaseModel):
             the rules engine. This includes basic fluff like the character's
             actual name, the name of the player, number of events played,
             base currency values, special flags, etc.
-        features: The full set of a character's purchased features.
     """
 
-    id: str = pydantic.Field(default=uuid4)
+    id: str = pydantic.Field(default_factory=uuid4)
     ruleset_id: str
+    ruleset_version: str
     name: str | None = None
     metadata: CharacterMetadata | None = None
-    features: list[FeatureEntry] = pydantic.Field(default_factory=list)
     _ruleset: BaseRuleset | None = pydantic.PrivateAttr(default=None)
     _cache: dict = pydantic.PrivateAttr(default_factory=dict)
+
+    @abstractmethod
+    def features(self) -> Iterable[FeatureEntry]:
+        ...
+
+    @abstractmethod
+    def get_feature(self, id) -> list[FeatureEntry] | None:
+        ...
 
     def attributes(self) -> list[AttributeEntry]:
         return self._ruleset.calculate_attributes(self)
@@ -329,6 +348,11 @@ class FeatureSource(BaseModel):
     cost: int | None = None
 
 
+class OptionValue(BaseModel):
+    freeform: str | None = None
+    feature_id: Identifier | None = None
+
+
 class FeatureEntry(BaseModel):
     """Represents an instance of a feature for a character.
 
@@ -353,4 +377,12 @@ class FeatureEntry(BaseModel):
     id: Identifier
     ranks: int | None = None
     sources: list[FeatureSource] = pydantic.Field(default_factory=list)
-    text: str | None = None
+    option: OptionValue | None = None
+
+
+class RulesDecision(BaseModel):
+    success: bool = False
+    reason: str | None = None
+
+    def __bool__(self) -> bool:
+        return self.success
