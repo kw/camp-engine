@@ -17,7 +17,11 @@ from camp.engine.models import FeatureEntry
 from camp.engine.models import Identifier
 from camp.engine.models import Identifiers
 from camp.engine.models import ModelDefinition
+from camp.engine.models import OptionDef
+from camp.engine.models import RulesDecision
 from camp.engine.utils import maybe_iter
+
+from . import _rules
 
 
 class GrantAttribute(BaseModel):
@@ -57,13 +61,6 @@ class ClassDef(BaseFeatureDef):
             ruleset.validate_identifiers(self.bonus_features.values())
 
 
-class SkillOptionDef(BaseModel):
-    multiple: bool = False
-    freeform: Literal["short", "long", None] = None
-    values: list[str] | None = None
-    grants: list[Identifier | GrantAttribute] | None = None
-
-
 class SkillDef(BaseFeatureDef):
     type: Literal["skill"] = "skill"
     category: str = "General"
@@ -71,7 +68,7 @@ class SkillDef(BaseFeatureDef):
     ranks: bool | int = False
     uses: int | None = None
     requires: Identifiers = None
-    option: SkillOptionDef | None = None
+    option: OptionDef | None = None
     grants: Grantables = None
 
     def post_validate(self, ruleset: BaseRuleset) -> None:
@@ -119,6 +116,12 @@ class Character(BaseCharacter):
         if id not in self._features:
             return None
         return self._features[id]
+
+    def can_add_feature(self, entry: FeatureEntry | str) -> RulesDecision:
+        return _rules.can_add_feature(self, entry)
+
+    def add_feature(self, entry: FeatureEntry | str) -> RulesDecision:
+        return _rules.add_feature(self, entry)
 
 
 class Ruleset(BaseRuleset):

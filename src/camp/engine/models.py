@@ -8,18 +8,25 @@ from abc import ABC
 from abc import abstractmethod
 from abc import abstractproperty
 from typing import Iterable
+from typing import Type
+from typing import TypeAlias
 from uuid import uuid4
 
 import pydantic
 from packaging import version
 
+from . import utils
+
 NON_WORD = re.compile(r"[^\w-]+")
 
 # The model class or union of classes to be parsed into models.
-ModelDefinition: typing.TypeAlias = typing.Type[pydantic.BaseModel] | types.UnionType
-Identifier: typing.TypeAlias = str
-Identifiers: typing.TypeAlias = Identifier | list[Identifier] | None
-Requirements: typing.TypeAlias = str | list[str] | None
+ModelDefinition: TypeAlias = Type[pydantic.BaseModel] | types.UnionType
+Identifier: TypeAlias = str
+Identifiers: TypeAlias = Identifier | list[Identifier] | None
+Requirements: TypeAlias = str | list[str] | None
+FlagValue: TypeAlias = bool | int | float | str
+FlagValues: TypeAlias = list[FlagValue] | FlagValue
+OptionValue: TypeAlias = str
 
 
 class BaseModel(pydantic.BaseModel):
@@ -35,6 +42,8 @@ class BaseFeatureDef(BaseModel):
     def_path: str | None = None
     tags: set[str] = pydantic.Field(default_factory=set)
     description: str | None = None
+    option: OptionDef | None = None
+    multiple: bool = False
 
     @classmethod
     def default_name(cls) -> str:
@@ -119,7 +128,7 @@ class BaseRuleset(BaseModel, ABC):
                 self._display_names[key] = name
 
     @abstractproperty
-    def sheet_type(self) -> typing.Type[BaseCharacter]:
+    def sheet_type(self) -> Type[BaseCharacter]:
         ...
 
     @property
@@ -189,7 +198,8 @@ class BaseRuleset(BaseModel, ABC):
 
     def dump(self) -> str:
         return json.dumps(
-            self.dict(by_alias=True, exclude_unset=True, exclude_none=True)
+            self.dict(by_alias=True, exclude_unset=True, exclude_none=True),
+            cls=utils._JSONEncoder,
         )
 
     def identifier_defined(self, identifier: Identifier) -> bool:
@@ -230,6 +240,31 @@ class BaseRuleset(BaseModel, ABC):
                 raise ValueError(f'Required identifier "{id}" not found in ruleset.')
 
 
+class CharacterMetadata(BaseModel):
+    """Overarching character data.
+
+    While a character might have multiple sheets for various occassions,
+    this data comes from outside of the sheet and generally represents
+    external factors. For example, a character sheet can usually be
+    freely rewritten up until the point where the character is used
+    at an event, at which point changes are much more constrained.
+
+    CharacterMetadata is not necessarily expected to be persisted.
+    It can be constructed at any time from a player's attendenace
+    records, service point expenditures, etc. The metadata provided
+    might vary, for example, for a level-down sheet at a level
+    capped event.
+    """
+
+    id: str = pydantic.Field(default=uuid4)
+    player_id: str | None = None
+    character_name: str | None = None
+    player_name: str | None = None
+    events_played: float = 0.0
+    currencies: dict[str, int] = pydantic.Field(default_factory=dict)
+    flags: dict[str, FlagValues] = pydantic.Field(default_factory=dict)
+
+
 class BaseCharacter(BaseModel, ABC):
     """Represents a character sheet.
 
@@ -262,7 +297,7 @@ class BaseCharacter(BaseModel, ABC):
     ruleset_id: str
     ruleset_version: str
     name: str | None = None
-    metadata: CharacterMetadata | None = None
+    metadata: CharacterMetadata = pydantic.Field(default_factory=CharacterMetadata)
     _ruleset: BaseRuleset | None = pydantic.PrivateAttr(default=None)
     _cache: dict = pydantic.PrivateAttr(default_factory=dict)
 
@@ -274,36 +309,83 @@ class BaseCharacter(BaseModel, ABC):
     def get_feature(self, id) -> list[FeatureEntry] | None:
         ...
 
+    def can_add_feature(self, entry: FeatureEntry | str) -> RulesDecision:
+        return RulesDecision(success=False, reason="Not implemented")
+
+    def add_feature(self, entry: FeatureEntry | str) -> RulesDecision:
+        return RulesDecision(success=False, reason="Not implemented")
+
     def attributes(self) -> list[AttributeEntry]:
-        return self._ruleset.calculate_attributes(self)
+        return []
 
-    def open_slots(self) -> list:
-        return self._ruleset.calculate_open_slots(self)
+    def open_slots(self) -> list[SlotEntry]:
+        return []
 
+    def options_values_for_feature(
+        self, feature_id: Identifier, exclude_taken: bool = False
+    ) -> set[OptionValue]:
+        """Retrieve the options valid for a feature for this character.
 
-class CharacterMetadata(BaseModel):
-    """Overarching character data.
+        Args:
+            feature_id: Identifier of the feature to check.
+            exclude_taken: If this character has already taken
+                this feature, removes any
+        """
+        feature_def = self._ruleset.features[feature_id]
+        option_def = feature_def.option
+        if not option_def.values:
+            return set()
+        options_excluded: set[str] = set()
+        if exclude_taken and (feature_entries := self.get_feature(feature_id)):
+            if not feature_def.multiple:
+                # The feature can only have a single option and it already
+                # has one, so no other options are legal.
+                return set()
+            options_excluded = {e.option for e in feature_entries if e.option}
 
-    While a character might have multiple sheets for various occassions,
-    this data comes from outside of the sheet and generally represents
-    external factors. For example, a character sheet can usually be
-    freely rewritten up until the point where the character is used
-    at an event, at which point changes are much more constrained.
+        legal_values = set(option_def.values)
+        if option_def.values_flag:
+            # If a values flag is specified, check the character metadata to
+            # see if additional legal values are provided. This will probably
+            # be a list of strings, but handle other things as well. If a
+            # value in the list is prefixed with "-" it is removed from the
+            # legal value set.
+            extra_values = self.metadata.flags.get(option_def.values_flag, [])
+            if not isinstance(extra_values, list):
+                extra_values = [extra_values]
+            for value in (str(v) for v in extra_values):
+                if value.startswith("-"):
+                    legal_values.remove(value[1:])
+                else:
+                    legal_values.add(value)
 
-    CharacterMetadata is not necessarily expected to be persisted.
-    It can be constructed at any time from a player's attendenace
-    records, service point expenditures, etc. The metadata provided
-    might vary, for example, for a level-down sheet at a level
-    capped event.
-    """
+        legal_values ^= options_excluded
+        return legal_values
 
-    id: str = pydantic.Field(default=uuid4)
-    player_id: str | None = None
-    character_name: str | None = None
-    player_name: str | None = None
-    events_played: float = 0.0
-    currencies: dict[str, int] = pydantic.Field(default=dict)
-    flags: dict[str, bool | int | float | str] = pydantic.Field(default=dict)
+    def option_satisfies_definition(
+        self,
+        feature_id: Identifier,
+        option_value: OptionValue,
+        exclude_taken: bool = False,
+    ) -> bool:
+        feature_def = self._ruleset.features[feature_id]
+        option_def = feature_def.option
+        if not option_def and not option_value:
+            # No option needed, no option provided. Good.
+            return True
+        if not option_def and option_value:
+            # There's no option definition, if an option was provided
+            # then it's wrong.
+            return False
+        if option_def.freeform:
+            # The values are just suggestions. We may want to
+            # filter for profanity or something, but otherwise
+            # anything goes.
+            return True
+        # Otherwise, the option must be in a specific set of values.
+        return option_value in self.options_values_for_feature(
+            feature_id, exclude_taken=exclude_taken
+        )
 
 
 class AttributeEntry(BaseModel):
@@ -317,6 +399,7 @@ class SlotEntry(BaseModel):
     id: Identifier
     feature_type: str
     requires: Requirements = None
+    immediate: bool = False
 
 
 class FeatureSource(BaseModel):
@@ -348,9 +431,31 @@ class FeatureSource(BaseModel):
     cost: int | None = None
 
 
-class OptionValue(BaseModel):
-    freeform: str | None = None
-    feature_id: Identifier | None = None
+class OptionDef(BaseModel):
+    """
+
+    Attributes:
+        short: If true, the option text will be rendered along with
+            the title, such as "Lore [Undead]". Otherwise, where
+            (and if) the option is rendered depends on custom view code.
+        freeform: If true, allows free entry of text for this option.
+        values: If provided, a drop-down list of options will
+            be presented with these values. If `freeform` is
+            also specified, the list will have an "Other..." option
+            that allows freeform entry.
+        values_flag: If provided, names a flag that might appear in the
+            character's metadata, which should be a list of strings.
+            Values in this list are added to the provided values list
+            unless they are prefixed with "-", in which case they signal
+            the value should be removed. This allows staff to potentially
+            add or remove values in the default ruleset for the playerbase
+            or a specific character without needing to edit the ruleset.
+    """
+
+    short: bool = True
+    freeform: bool = False
+    values: set[str] | None = None
+    values_flag: str | None = None
 
 
 class FeatureEntry(BaseModel):
@@ -364,24 +469,34 @@ class FeatureEntry(BaseModel):
         ranks: If the feature has ranks or levels, the number of them currently
             held by the character.
 
-        text: Got a skill in your larp called "Craftsman" or "Lore"
+        option: Got a skill in your larp called "Craftsman" or "Lore"
             or something where you fill in an arbitrary description of what
             sort of craft or lore you can do and it has no mechanical effect?
             Store it in this field, and the feature will be rendered as
             "Craftsman (Programmer)" or "Lore (Larp History)" or whatever.
-            If your feature requires storing a paragraph because it lets you
-            rewrite the incantations for your spells or something, subclass
-            this model for your ruleset's needs.
+            In the future this field may accept non-string values if more
+            complex options are needed.
     """
 
     id: Identifier
     ranks: int | None = None
     sources: list[FeatureSource] = pydantic.Field(default_factory=list)
-    option: OptionValue | None = None
+    option: str | None = None
 
 
 class RulesDecision(BaseModel):
+    """
+    Attributes:
+        success: True if the mutation succeeds or query succeeds.
+        needs_option: When returned from a query, will be True
+            if the only thing missing from the feature is an option.
+        reason: If success=False, explains why.
+
+    Note that this object's truthiness is tied to its success attribute.
+    """
+
     success: bool = False
+    needs_option: bool = False
     reason: str | None = None
 
     def __bool__(self) -> bool:
