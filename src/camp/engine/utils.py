@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from importlib import import_module
 from typing import Any
@@ -39,3 +40,10 @@ def maybe_iter(value):
         yield from value
     else:
         yield value
+
+
+class _JSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, set):
+            return list(obj)
+        return json.JSONEncoder.default(self, obj)
