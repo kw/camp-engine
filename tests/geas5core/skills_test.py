@@ -33,10 +33,22 @@ def test_add_basic_feature_twice(character: Character):
     assert not character.add_feature("basic-skill")
 
 
-@pytest.mark.xfail
 def test_one_requirement_missing(character: Character):
     assert not character.can_add_feature("one-requirement")
     assert not character.add_feature("one-requirement")
+
+
+def test_two_requirements_missing(character: Character):
+    assert not character.can_add_feature("two-requirements")
+    assert not character.add_feature("two-requirements")
+
+
+def test_two_requirements_met(character: Character):
+    assert character.add_feature("basic-skill")
+    assert character.add_feature("one-requirement")
+    assert not character.can_add_feature("two-requirements")
+    assert character.add_feature("granted-skill")
+    assert character.add_feature("two-requirements")
 
 
 def test_one_requirement_met(character: Character):

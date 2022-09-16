@@ -301,7 +301,6 @@ class BaseCharacter(BaseModel, ABC):
     _ruleset: BaseRuleset | None = pydantic.PrivateAttr(default=None)
     _cache: dict = pydantic.PrivateAttr(default_factory=dict)
 
-    @abstractmethod
     def features(self) -> Iterable[FeatureEntry]:
         ...
 
@@ -320,6 +319,24 @@ class BaseCharacter(BaseModel, ABC):
 
     def open_slots(self) -> list[SlotEntry]:
         return []
+
+    def meets_requirements(self, requirements) -> RulesDecision:
+        meets_all = True
+        messages = []
+        entries = self.features()
+        feature_ids = {e.id for e in entries}
+        for req in utils.maybe_iter(requirements):
+            # TODO: Support reqs that are not just plain IDs.
+            if req not in feature_ids:
+                meets_all = False
+                entry = self._ruleset.features.get(req)
+                if entry:
+                    messages.append(f"- Missing feature {entry.name}")
+                else:
+                    messages.append(f'- Requirement "{req}" not understood')
+        return RulesDecision(
+            success=meets_all, reason="\n".join(messages) if messages else None
+        )
 
     def options_values_for_feature(
         self, feature_id: Identifier, exclude_taken: bool = False

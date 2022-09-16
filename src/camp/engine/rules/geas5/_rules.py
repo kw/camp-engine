@@ -55,6 +55,9 @@ def can_add_feature(
     # * Requirements checking
     # * Etc?
 
+    if not (rd := character.meets_requirements(feature.requires)):
+        return rd
+
     return RulesDecision(success=True)
 
 
