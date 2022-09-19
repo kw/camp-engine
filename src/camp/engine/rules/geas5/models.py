@@ -18,6 +18,7 @@ from camp.engine.models import Identifier
 from camp.engine.models import Identifiers
 from camp.engine.models import ModelDefinition
 from camp.engine.models import OptionDef
+from camp.engine.models import Requirements
 from camp.engine.models import RulesDecision
 from camp.engine.utils import maybe_iter
 
@@ -43,7 +44,7 @@ class ClassDef(BaseFeatureDef):
     starting_features: Identifiers = None
     multiclass_features: Identifiers = None
     bonus_features: dict[int, Identifiers] | None = None
-    class_features: list[ClassFeatureDef] = Field(default_factory=[])
+    class_features: list[ClassFeatureDef] = Field(default_factory=list)
     level_table_columns: dict[str, dict]
     levels: dict[int, dict]
 
@@ -67,7 +68,7 @@ class SkillDef(BaseFeatureDef):
     cost: int
     ranks: bool | int = False
     uses: int | None = None
-    requires: Identifiers = None
+    requires: Requirements = None
     option: OptionDef | None = None
     grants: Grantables = None
 
