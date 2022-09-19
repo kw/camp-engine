@@ -19,19 +19,46 @@ from . import utils
 
 NON_WORD = re.compile(r"[^\w-]+")
 
+
+class BaseModel(pydantic.BaseModel):
+    class Config:
+        extra = pydantic.Extra.forbid
+
+
+class BoolExpr(BaseModel):
+    def evaluate(self, *args) -> bool:
+        ...
+
+
 # The model class or union of classes to be parsed into models.
-ModelDefinition: TypeAlias = Type[pydantic.BaseModel] | types.UnionType
+ModelDefinition: TypeAlias = Type[BaseModel] | types.UnionType
 Identifier: TypeAlias = str
 Identifiers: TypeAlias = Identifier | list[Identifier] | None
-Requirements: TypeAlias = str | list[str] | None
+Requirements: TypeAlias = str | BoolExpr | list[str | BoolExpr] | None
 FlagValue: TypeAlias = bool | int | float | str
 FlagValues: TypeAlias = list[FlagValue] | FlagValue
 OptionValue: TypeAlias = str
 
 
-class BaseModel(pydantic.BaseModel):
-    class Config:
-        extra = pydantic.Extra.forbid
+class AnyOf(BoolExpr):
+    any: Requirements
+
+    def evaluate(self, *args):
+        return False
+
+
+class AllOf(BoolExpr):
+    all: Requirements
+
+    def evaluate(self, *args) -> bool:
+        return False
+
+
+class NoneOf(BoolExpr):
+    none: Requirements
+
+    def evaluate(self, *args) -> bool:
+        return False
 
 
 class BaseFeatureDef(BaseModel):
@@ -199,7 +226,7 @@ class BaseRuleset(BaseModel, ABC):
     def dump(self) -> str:
         return json.dumps(
             self.dict(by_alias=True, exclude_unset=True, exclude_none=True),
-            cls=utils._JSONEncoder,
+            cls=utils.JSONEncoder,
         )
 
     def identifier_defined(self, identifier: Identifier) -> bool:

@@ -5,6 +5,7 @@ import sys
 from importlib import import_module
 from typing import Any
 from typing import Iterable
+from typing import TypeVar
 
 
 def import_name(name: str) -> Any:
@@ -31,7 +32,10 @@ def import_name(name: str) -> Any:
     return getattr(module, attrib_name)
 
 
-def maybe_iter(value):
+_T = TypeVar("_T")
+
+
+def maybe_iter(value: str | _T | list[str | _T] | None) -> Iterable[str | _T]:
     if not value:
         return
     if isinstance(value, str):
@@ -42,7 +46,7 @@ def maybe_iter(value):
         yield value
 
 
-class _JSONEncoder(json.JSONEncoder):
+class JSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, set):
             return list(obj)
