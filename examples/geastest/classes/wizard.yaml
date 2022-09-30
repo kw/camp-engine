@@ -1,5 +1,6 @@
 type: class
-name: Caster Class A
+name: Wizard
+sphere: arcane
 starting_features:
   - caster-starting-a1
   - caster-starting-a2
@@ -10,10 +11,10 @@ multiclass_features:
 class_features:
   - name: Starting Feature A
     id: starting-feature-a
-    description: It's a cool feature, but for casters
+    description: It's a cool feature, but for arcane casters
   - name: Multiclass Feature A
     id: multiclass-feature-a
-    description: It's a less cool feature, but for casters
+    description: It's a less cool feature, but for arcane casters
 level_table_columns:
   spikes: {name: Spikes, type: attribute}
   cp: {name: CP, type: currency}

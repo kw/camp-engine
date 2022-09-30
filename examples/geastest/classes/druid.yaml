@@ -1,0 +1,28 @@
+type: class
+name: Druid
+sphere: divine
+starting_features:
+  - caster-starting-b1
+  - caster-starting-b2
+  - starting-feature-b
+multiclass_features:
+  - caster-starting-b2
+  - multiclass-feature-b
+class_features:
+  - name: Starting Feature B
+    id: starting-feature-b
+    description: It's a cool feature, but for divine casters
+  - name: Multiclass Feature B
+    id: multiclass-feature-b
+    description: It's a less cool feature, but for divine casters
+level_table_columns:
+  spikes: {name: Spikes, type: attribute}
+  cp: {name: CP, type: currency}
+levels:
+  1: {spikes: 0, cp: 0}
+  2: {spikes: 0, cp: 2}
+  3: {spikes: 0, cp: 4}
+  4: {spikes: 0, cp: 6}
+  5: {spikes: 1, cp: 8}
+  6: {spikes: 1, cp: 10}
+  7: {spikes: 1, cp: 12}
