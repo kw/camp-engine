@@ -1,4 +1,0 @@
-name = "Basic Demo"
-id = "broken"
-version = "0.1a"
-ruleset = "camp.engine.rules.basicdemo"

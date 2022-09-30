@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import Iterable
 from typing import Literal
 from typing import Type
 from typing import TypeAlias
 
 from pydantic import Field
-from pydantic import PrivateAttr
 
 from camp.engine.models import BaseCharacter
 from camp.engine.models import BaseFeatureDef
@@ -18,11 +16,9 @@ from camp.engine.models import Identifier
 from camp.engine.models import Identifiers
 from camp.engine.models import ModelDefinition
 from camp.engine.models import OptionDef
-from camp.engine.models import Requirements
 from camp.engine.models import RulesDecision
+from camp.engine.utils import Aggregator
 from camp.engine.utils import maybe_iter
-
-from . import _rules
 
 
 class GrantAttribute(BaseModel):
@@ -41,6 +37,7 @@ class ClassFeatureDef(BaseFeatureDef):
 
 class ClassDef(BaseFeatureDef):
     type: Literal["class"] = "class"
+    sphere: Literal["arcane", "divine", "martial"] = "martial"
     starting_features: Identifiers = None
     multiclass_features: Identifiers = None
     bonus_features: dict[int, Identifiers] | None = None
@@ -51,6 +48,56 @@ class ClassDef(BaseFeatureDef):
     @property
     def subfeatures(self) -> Iterable[BaseFeatureDef]:
         return self.class_features
+
+    def aggregate(self, entry: FeatureEntry, agg: Aggregator) -> None:
+        super().aggregate(entry, agg)
+        level = entry.ranks if entry.ranks is not None else 1
+
+        # Aggregate caster/martial/sphere counters
+        agg.aggregate(self.sphere, level)
+        if self.sphere != "martial":
+            agg.aggregate("caster", level)
+
+        # Character level aggregate. Note that the "max" aggregation
+        # is also done, so 'level$N' can test the highest level in
+        # a single class.
+        agg.aggregate("level", level)
+
+        # Attributes by level
+        if level in self.levels:
+            row = self.levels[level]
+        else:
+            row = self.levels[max(self.levels.keys())]
+        for attr, value in row.items():
+            meta = self.level_table_columns[attr]
+            match meta["type"]:
+                case "local":
+                    # For "local" attributes such as the number of prepared
+                    # spells, we want to keep each class's prepared spells
+                    # separated. However, we me also want to know whether the
+                    # character has, for example, arcane prepared spells,
+                    # or any prepared spells at all. So we aggregate using
+                    # the class ID and the class sphere as extra options.
+                    agg.aggregate(f"{attr}#{self.id}", value, do_max=False)
+                    agg.aggregate(f"{attr}#{self.sphere}", value)
+                    agg.aggregate(attr, value)
+                case "power_slots":
+                    # These are local attributes whose value is specified as a list.
+                    # Each value is for a different tier of power slots, so we use the
+                    # attr@N "tier" syntax to seperately aggregate each tier's value.
+                    # Like other locals, we also add aggregations for the class ID and
+                    # the sphere type.
+                    for i, slot_value in enumerate(value):
+                        tier_id = f"{attr}@{i+1}"
+                        agg.aggregate(f"{tier_id}#{self.id}", slot_value, do_max=False)
+                        agg.aggregate(
+                            f"{tier_id}#{self.sphere}", slot_value, do_max=False
+                        )
+                        agg.aggregate(tier_id, slot_value)
+                        agg.aggregate(attr, value)
+                case _:
+                    # Basic attributes, currencies, etc.
+                    agg.aggregate(attr, value, do_max=False)
 
     def post_validate(self, ruleset: BaseRuleset) -> None:
         super().post_validate(ruleset)
@@ -68,7 +115,6 @@ class SkillDef(BaseFeatureDef):
     cost: int
     ranks: bool | int = False
     uses: int | None = None
-    requires: Requirements = None
     option: OptionDef | None = None
     grants: Grantables = None
 
@@ -81,54 +127,82 @@ class SkillDef(BaseFeatureDef):
                 ruleset.validate_identifiers(grant)
 
 
-class SpellDef(BaseFeatureDef):
-    type: Literal["spell"] = "spell"
+class PowerDef(BaseFeatureDef):
+    type: Literal["power"] = "power"
+    sphere: Literal["arcane", "divine", "martial"]
+    tier: Literal[0, 1, 2, 3, 4]
     class_: str = Field(alias="class")
+    incant_prefix: str | None = None
+    incant: str | None = None
+    call: str | None = None
+    accent: str | None = None
+    target: str | None = None
+    duration: str | None = None
+    delivery: str | None = None
+    refresh: str | None = None
+    effect: str | None = None
+    grants: Grantables = None
 
     def post_validate(self, ruleset: BaseRuleset) -> None:
         super().post_validate(ruleset)
         ruleset.validate_identifiers(self.class_)
 
 
-FeatureDefinitions: TypeAlias = ClassDef | ClassFeatureDef | SkillDef | SpellDef
+FeatureDefinitions: TypeAlias = ClassDef | ClassFeatureDef | SkillDef | PowerDef
 
 
 class Character(BaseCharacter):
-    classes: list[FeatureEntry] = Field(default_factory=list)
-    classfeatures: list[FeatureEntry] = Field(default_factory=list)
-    breeds: list[FeatureEntry] = Field(default_factory=list)
-    skills: list[FeatureEntry] = Field(default_factory=list)
-    _features: dict[Identifier, list[FeatureEntry]] | None = PrivateAttr(default=None)
-
-    def _init_features(self):
-        if self._features is None:
-            self._features = defaultdict(list)
-            for f in self.features():
-                self._features[f.id].append(f)
-
-    def features(self) -> Iterable[FeatureEntry]:
-        yield from self.classes
-        yield from self.classfeatures
-        yield from self.breeds
-        yield from self.skills
-
-    def get_feature(self, id) -> list[FeatureEntry] | None:
-        self._init_features()
-        if id not in self._features:
-            return None
-        return self._features[id]
-
     def can_add_feature(self, entry: FeatureEntry | str) -> RulesDecision:
-        return _rules.can_add_feature(self, entry)
+        if isinstance(entry, str):
+            entry = FeatureEntry(id=entry)
 
-    def add_feature(self, entry: FeatureEntry | str) -> RulesDecision:
-        return _rules.add_feature(self, entry)
+        ruleset = self._ruleset
+        if entry.id not in ruleset.features:
+            return RulesDecision(success=False, reason="Feature not defined")
+
+        feature = ruleset.features[entry.id]
+        entries = self.features.get(entry.id)
+
+        # Skills are the only feature in Geas that can
+        # potentially have multiple instances. Probably.
+        if entries:
+            if feature.option and not feature.multiple:
+                return RulesDecision(success=False, reason="Already have this feature")
+            elif any(e for e in entries if e.option == entry.option):
+                return RulesDecision(
+                    success=False, reason="Already have this feature with this option"
+                )
+            elif not feature.option:
+                return RulesDecision(success=False, reason="Already have this feature.")
+
+        if feature.option and not entry.option:
+            # The feature requires an option, but one was not provided. This happens
+            # during preliminary scans of purchasable features. As long as there are
+            # any options available for purchase, report true, but mark it appropriately.
+            if feature.option.freeform or self.options_values_for_feature(
+                feature.id, exclude_taken=True
+            ):
+                return RulesDecision(success=True, needs_option=True)
+        if not self.option_satisfies_definition(
+            feature.id, entry.option, exclude_taken=True
+        ):
+            return RulesDecision(
+                success=False, reason="Option does not satisfy requirements"
+            )
+
+        # TODO: Lots of other checks, like:
+        # * Enforce build order, maybe (Starting Class -> Breeds -> Other)?
+        # * Enforce currencies (CP, XP, BP, etc)
+        # * Etc?
+
+        if not (rd := self.meets_requirements(feature.requires)):
+            return rd
+
+        return RulesDecision(success=True)
 
 
 class Ruleset(BaseRuleset):
     features: dict[Identifier, FeatureDefinitions] = Field(default_factory=dict)
-    base_xp: int = 0
-    base_cp: int = 0
     breedcap: int = 2
     flaw_cap: int = 10
     flaw_overcome: int = 2

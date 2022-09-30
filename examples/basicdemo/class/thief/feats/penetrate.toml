@@ -1,7 +1,0 @@
-name = "Penetrate"
-ranks = true
-uses = 1
-description = """
-Once per day per purchase, you may add Piercing to your
-Backstab attacks.
-"""

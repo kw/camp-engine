@@ -15,9 +15,22 @@ from uuid import uuid4
 import pydantic
 from packaging import version
 
+from camp.engine.utils import Aggregator
+from camp.engine.utils import maybe_iter
+
 from . import utils
 
 NON_WORD = re.compile(r"[^\w-]+")
+_REQ_SYNTAX = re.compile(
+    r"""(?P<prop>[a-zA-Z0-9_-]+)
+    (?:@(?P<tier>\d+))?          # Tier, aka "@4"
+    (?:\#(?P<option>[a-zA-Z0-9?_-]+))?   # Skill options, aka "#Undead_Lore"
+    (?::(?P<minimum>\d+))?       # Minimum value, aka ":5"
+    (?:\$(?P<single>\d+))?       # Minimum value in single thing, aka "$5"
+    (?:<(?P<less_than>\d+))?     # Less than value, aka "<5"
+    """,
+    re.VERBOSE,
+)
 
 
 class BaseModel(pydantic.BaseModel):
@@ -25,16 +38,19 @@ class BaseModel(pydantic.BaseModel):
         extra = pydantic.Extra.forbid
 
 
-class BoolExpr(BaseModel):
-    def evaluate(self, *args) -> bool:
+class BoolExpr(BaseModel, ABC):
+    @abstractmethod
+    def evaluate(self, agg: Aggregator) -> bool:
         ...
+
+    def identifiers(self) -> set[Identifier]:
+        return set()
 
 
 # The model class or union of classes to be parsed into models.
 ModelDefinition: TypeAlias = Type[BaseModel] | types.UnionType
 Identifier: TypeAlias = str
 Identifiers: TypeAlias = Identifier | list[Identifier] | None
-Requirements: TypeAlias = str | BoolExpr | list[str | BoolExpr] | None
 FlagValue: TypeAlias = bool | int | float | str
 FlagValues: TypeAlias = list[FlagValue] | FlagValue
 OptionValue: TypeAlias = str
@@ -43,22 +59,138 @@ OptionValue: TypeAlias = str
 class AnyOf(BoolExpr):
     any: Requirements
 
-    def evaluate(self, *args):
-        return False
+    def evaluate(self, agg: Aggregator) -> bool:
+        return any(op.evaluate(agg) for op in maybe_iter(self.any))
+
+    def identifiers(self):
+        ids = set()
+        for op in maybe_iter(self.any):
+            ids |= op.identifiers()
+        return ids
 
 
 class AllOf(BoolExpr):
     all: Requirements
 
-    def evaluate(self, *args) -> bool:
-        return False
+    def evaluate(self, agg: Aggregator) -> bool:
+        return all(op.evaluate(agg) for op in maybe_iter(self.all))
+
+    def identifiers(self):
+        ids = set()
+        for op in maybe_iter(self.all):
+            ids |= op.identifiers()
+        return ids
 
 
 class NoneOf(BoolExpr):
     none: Requirements
 
-    def evaluate(self, *args) -> bool:
-        return False
+    def evaluate(self, agg: Aggregator) -> bool:
+        return not any(op.evaluate(agg) for op in maybe_iter(self.none))
+
+    def identifiers(self):
+        ids = set()
+        for op in maybe_iter(self.none):
+            ids |= op.identifiers()
+        return ids
+
+
+class PropReq(BoolExpr):
+    """Things that might get parsed out of a requirement string.
+
+    Attributes:
+        prop: The property being tested. Often a feature ID. Required.
+        option: Text value listed after a #. Ex: lore#Undead
+            This is handled specially if the value is '?', which means
+            "You need the same option in the indicated skill as you are
+            taking for this skill".
+        minimum: "At least this many ranks/levels/whatever". Ex: caster:5 is
+            "at least 5 levels in casting classes"
+        single: "At least this many ranks in the highest thing of this type"
+            Ex: caster$5 is "at least 5 ranks in a single casting class".
+        less_than: "No more than this many ranks". Ex: lore<2 means no more
+            than one total ranks of Lore skills.
+        tier: For tiered properties like spell slots. Ex: spell@4 indicates
+            at least one tier-4 spell slot, while spell@4:3 indicates at least
+            three tier-4 spell slots.
+    """
+
+    prop: Identifier
+    tier: int | None = None
+    option: str | None = None
+    minimum: int | None = None
+    single: int | None = None
+    less_than: int | None = None
+
+    def evaluate(self, agg: Aggregator) -> bool:
+        id = self.prop
+        if self.tier is not None:
+            id = f"{id}@{self.tier}"
+        if self.option is not None:
+            id = f"{id}#{self.option.replace(' ', '_')}"
+        ranks = agg.get(id)
+        if self.minimum is not None:
+            if ranks < self.minimum:
+                return False
+        elif self.less_than is not None:
+            if ranks >= self.less_than:
+                return False
+        elif self.single is not None:
+            max_ranks = agg.get_max(id)
+            if max_ranks < self.single:
+                return False
+        else:
+            if ranks < 1:
+                return False
+        return True
+
+    def identifiers(self) -> set[Identifier]:
+        return set([self.prop])
+
+    @classmethod
+    def parse(cls, req: str) -> PropReq:
+        if match := _REQ_SYNTAX.fullmatch(req):
+            groups = match.groupdict()
+            prop = groups["prop"]
+            tier = int(t) if (t := groups.get("tier")) else None
+            option = o.replace("_", " ") if (o := groups.get("option")) else None
+            minimum = int(m) if (m := groups.get("minimum")) else None
+            single = int(s) if (s := groups.get("single")) else None
+            less_than = int(lt) if (lt := groups.get("less_than")) else None
+            return cls(
+                prop=prop,
+                tier=tier,
+                option=option,
+                minimum=minimum,
+                single=single,
+                less_than=less_than,
+            )
+        raise ValueError(f"Requirement parse failure for {req}")
+
+    def __repr__(self) -> str:
+        req = self.prop
+        if self.tier:
+            req += f"@{self.tier}"
+        if self.option:
+            req += f"#{self.option.replace(' ', '_')}"
+        if self.minimum:
+            req += f":{self.minimum}"
+        if self.single:
+            req += f"${self.single}"
+        if self.less_than:
+            req += f"<{self.less_than}"
+        return req
+
+
+# The requirements language involves a lot of recursive definitions,
+# so define it here. Pydantic models using forward references need
+# to be poked to know the reference is ready, so update them as well.
+Requirement: TypeAlias = AnyOf | AllOf | NoneOf | PropReq | str
+Requirements: TypeAlias = list[Requirement] | Requirement | None
+AnyOf.update_forward_refs()
+AllOf.update_forward_refs()
+NoneOf.update_forward_refs()
+PropReq.update_forward_refs()
 
 
 class BaseFeatureDef(BaseModel):
@@ -95,7 +227,15 @@ class BaseFeatureDef(BaseModel):
         return []
 
     def post_validate(self, ruleset: BaseRuleset) -> None:
-        ruleset.validate_identifiers(self.requires)
+        self.requires = parse_req(self.requires)
+        if self.requires:
+            ruleset.validate_identifiers(list(self.requires.identifiers()))
+
+    def aggregate(self, entry: FeatureEntry, agg: utils.Aggregator) -> None:
+        ranks = entry.ranks if entry.ranks is not None else 1
+        agg.aggregate(entry.id, ranks)
+        if entry.option:
+            agg.aggregate(entry.option_id, ranks, do_max=False)
 
 
 class BadDefinition(BaseModel):
@@ -324,22 +464,34 @@ class BaseCharacter(BaseModel, ABC):
     ruleset_id: str
     ruleset_version: str
     name: str | None = None
+    features: dict[str, list[FeatureEntry]] = pydantic.Field(default_factory=dict)
+
     metadata: CharacterMetadata = pydantic.Field(default_factory=CharacterMetadata)
     _ruleset: BaseRuleset | None = pydantic.PrivateAttr(default=None)
-    _cache: dict = pydantic.PrivateAttr(default_factory=dict)
-
-    def features(self) -> Iterable[FeatureEntry]:
-        ...
-
-    @abstractmethod
-    def get_feature(self, id) -> list[FeatureEntry] | None:
-        ...
+    _aggregate: utils.Aggregator = pydantic.PrivateAttr(
+        default_factory=utils.Aggregator
+    )
+    _aggregate_dirty: bool = pydantic.PrivateAttr(default=True)
 
     def can_add_feature(self, entry: FeatureEntry | str) -> RulesDecision:
         return RulesDecision(success=False, reason="Not implemented")
 
     def add_feature(self, entry: FeatureEntry | str) -> RulesDecision:
-        return RulesDecision(success=False, reason="Not implemented")
+        if isinstance(entry, str):
+            entry = FeatureEntry(id=entry)
+
+        rd = self.can_add_feature(entry)
+        if rd and rd.needs_option:
+            return RulesDecision(
+                success=False,
+                needs_option=True,
+                reason="Option value required for purchase",
+            )
+        elif rd:
+            entries = self.features.setdefault(entry.id, [])
+            entries.append(entry)
+            self._aggregate_dirty = True
+        return rd
 
     def attributes(self) -> list[AttributeEntry]:
         return []
@@ -347,23 +499,39 @@ class BaseCharacter(BaseModel, ABC):
     def open_slots(self) -> list[SlotEntry]:
         return []
 
-    def meets_requirements(self, requirements) -> RulesDecision:
+    @property
+    def feature_entries(self) -> Iterable[FeatureEntry]:
+        for entries in self.features.values():
+            yield from entries
+
+    def meets_requirements(self, requirements: Requirements) -> RulesDecision:
         meets_all = True
-        messages = []
-        entries = self.features()
-        feature_ids = {e.id for e in entries}
+        messages: list[str] = []
+        agg = self.aggregate()
         for req in utils.maybe_iter(requirements):
-            # TODO: Support reqs that are not just plain IDs.
-            if req not in feature_ids:
+            if isinstance(req, str):
+                # It's unlikely that an unparsed string gets here, but if so,
+                # go ahead and parse it.
+                req = PropReq.parse(req)
+            if not req.evaluate(agg):
+                # TODO: Extract failure messages
                 meets_all = False
-                entry = self._ruleset.features.get(req)
-                if entry:
-                    messages.append(f"- Missing feature {entry.name}")
-                else:
-                    messages.append(f'- Requirement "{req}" not understood')
+        if not meets_all:
+            messages = ["Not all requirements are met"] + messages
         return RulesDecision(
             success=meets_all, reason="\n".join(messages) if messages else None
         )
+
+    def aggregate(self):
+        if not self._aggregate_dirty:
+            return self._aggregate
+        agg = utils.Aggregator()
+        for entry in self.feature_entries:
+            if feature_def := self._ruleset.features.get(entry.id):
+                feature_def.aggregate(entry, agg)
+        self._aggregate_dirty = False
+        self._aggregate = agg
+        return self._aggregate
 
     def options_values_for_feature(
         self, feature_id: Identifier, exclude_taken: bool = False
@@ -380,7 +548,7 @@ class BaseCharacter(BaseModel, ABC):
         if not option_def.values:
             return set()
         options_excluded: set[str] = set()
-        if exclude_taken and (feature_entries := self.get_feature(feature_id)):
+        if exclude_taken and (feature_entries := self.features.get(feature_id)):
             if not feature_def.multiple:
                 # The feature can only have a single option and it already
                 # has one, so no other options are legal.
@@ -527,6 +695,13 @@ class FeatureEntry(BaseModel):
     sources: list[FeatureSource] = pydantic.Field(default_factory=list)
     option: str | None = None
 
+    @property
+    def option_id(self) -> str | None:
+        if self.option:
+            return f"{self.id}#{self.option.replace(' ', '_')}"
+        else:
+            return None
+
 
 class RulesDecision(BaseModel):
     """
@@ -545,3 +720,22 @@ class RulesDecision(BaseModel):
 
     def __bool__(self) -> bool:
         return self.success
+
+
+def parse_req(req: Requirements) -> BoolExpr | None:
+    if not req:
+        return None
+    if isinstance(req, list):
+        return AllOf(all=[parse_req(r) for r in req])
+    if isinstance(req, AllOf):
+        return AllOf(all=[parse_req(r) for r in maybe_iter(req.all)])
+    if isinstance(req, AnyOf):
+        return AnyOf(any=[parse_req(r) for r in maybe_iter(req.any)])
+    if isinstance(req, NoneOf):
+        return NoneOf(none=[parse_req(r) for r in maybe_iter(req.none)])
+    if isinstance(req, str):
+        if req.startswith("!"):
+            return NoneOf(none=[PropReq.parse(req[1:])])
+        else:
+            return PropReq.parse(req)
+    raise ValueError(f"Requirement parse failure for {req}")

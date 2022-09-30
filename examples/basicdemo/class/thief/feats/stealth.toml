@@ -1,8 +1,0 @@
-name = "Stealth"
-requires = ["legerdemain", "trick"]
-description = """
-You may sneak around more effectively than your actual out of
-game sneaking ability. If someone asks if they can see you, just
-say "No." and keep going. If they buy it, it worked! Otherwise they
-probably start hitting you.
-"""

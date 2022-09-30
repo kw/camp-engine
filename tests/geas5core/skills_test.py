@@ -106,5 +106,5 @@ def test_multiple_option_skill_without_option(character: Character):
     assert character.can_add_feature(fid) == success_but_needs_option
     assert character.add_feature(FeatureEntry(id=fid, option="Three"))
     assert not character.can_add_feature(fid)
-    options = {e.option for e in character.get_feature(fid)}
+    options = {e.option for e in character.features.get(fid, [])}
     assert options == {"One", "Two", "Three"}
