@@ -1,7 +1,0 @@
-name = "Dodge"
-ranks = true
-uses = 1
-description = """
-When struck with a weapon or packet attack, you may call **Dodge!**
-to negate the effect. See also [Evasion](evade).
-"""

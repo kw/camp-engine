@@ -3,8 +3,8 @@ import pytest
 from camp.engine.models import AllOf
 from camp.engine.models import AnyOf
 from camp.engine.models import NoneOf
-from camp.engine.rules.geas5._rules import PropReq
-from camp.engine.rules.geas5._rules import parse_req
+from camp.engine.models import PropReq
+from camp.engine.models import parse_req
 
 
 @pytest.mark.parametrize(

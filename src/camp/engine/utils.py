@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections import defaultdict
 from importlib import import_module
 from typing import Any
 from typing import Iterable
@@ -40,7 +41,7 @@ def maybe_iter(value: str | _T | list[str | _T] | None) -> Iterable[str | _T]:
         return
     if isinstance(value, str):
         yield value
-    elif isinstance(value, Iterable):
+    elif isinstance(value, list):
         yield from value
     else:
         yield value
@@ -51,3 +52,24 @@ class JSONEncoder(json.JSONEncoder):
         if isinstance(obj, set):
             return list(obj)
         return json.JSONEncoder.default(self, obj)
+
+
+class Aggregator:
+    _MAX = ":max_{}"
+    _cache: defaultdict[str, int]
+
+    def __init__(self):
+        self._cache = defaultdict(lambda: 0)
+
+    def aggregate(self, prop: str, value: int, do_max: bool = True):
+        self._cache[prop] += value
+        if do_max:
+            max_prop = self._MAX.format(prop)
+            if value > self._cache[max_prop]:
+                self._cache[max_prop] = value
+
+    def get(self, prop: str) -> int:
+        return self._cache[prop]
+
+    def get_max(self, prop: str) -> int:
+        return self._cache[self._MAX.format(prop)]
