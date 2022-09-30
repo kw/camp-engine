@@ -1,5 +1,6 @@
-name: Caster Starting A2
+name: Arcane Multiclass Feature
 cost: 6
+requires: arcane
 description: >
-  This skill is a starting feature for Casting Class A, including
+  This skill is a starting feature for arcane casters, including
   multiclass characters.

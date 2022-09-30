@@ -1,5 +1,6 @@
 type: class
-name: Martial Class A
+name: Fighter
+sphere: martial
 starting_features:
   - martial-starting-a1
   - martial-starting-a2

@@ -78,6 +78,20 @@ def test_option_values_provided(character: Character):
     assert character.add_feature(entry)
 
 
+def test_option_single_allowed(character: Character):
+    """If a skill allows an option but does not allow multiple selection...
+
+    Only accept a single skill entry for it.
+    """
+    entry = FeatureEntry(id="single-option", option="Rock")
+    assert character.can_add_feature(entry)
+    assert character.add_feature(entry)
+    assert not character.can_add_feature("single-option")
+    assert not character.can_add_feature(
+        FeatureEntry(id="single-option", option="Paper")
+    )
+
+
 def test_option_values_flag(character: Character):
     """If a skill with a value option specifies a values flag, additional legal values
     can be passed in via that metadata flag.
