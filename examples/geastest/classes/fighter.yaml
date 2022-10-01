@@ -8,21 +8,27 @@ starting_features:
 multiclass_features:
   - martial-starting-a2
   - multiclass-feature-a
-class_features:
-  - name: Starting Feature A
-    id: starting-feature-a
-    description: It's a cool feature.
-  - name: Multiclass Feature A
-    id: multiclass-feature-a
-    description: It's a less cool feature
 level_table_columns:
   spikes: {name: Spikes, type: attribute}
+  known: {name: Total Fighter Powers, type: local}
+  utility: {name: Utility Powers, type: local}
+  powers: {name: "Maximum Powers in each Fighter Tier\n(Basic/Advanced/Veteran/Champion)", type: power_slots}
   cp: {name: CP, type: currency}
 levels:
-  1: {spikes: 0, cp: 0}
-  2: {spikes: 1, cp: 2}
-  3: {spikes: 1, cp: 4}
-  4: {spikes: 2, cp: 6}
-  5: {spikes: 2, cp: 8}
-  6: {spikes: 3, cp: 10}
-  7: {spikes: 3, cp: 12}
+  1: {spikes: 0, known: 1, powers: [1], utility: 1, cp: 0}
+  2: {spikes: 1, known: 2, powers: [2], utility: 2, cp: 2}
+  3: {spikes: 1, known: 3, powers: [3], utility: 2, cp: 4}
+  4: {spikes: 2, known: 4, powers: [4], utility: 2, cp: 6}
+  5: {spikes: 2, known: 5, powers: [5], utility: 3, cp: 8}
+  6: {spikes: 3, known: 6, powers: [6], utility: 3, cp: 10}
+  7: {spikes: 3, known: 6, powers: [6, 1], utility: 3, cp: 12}
+---
+id: starting-feature-a
+type: classfeature
+name: Starting Feature A
+description: It's a cool feature.
+---
+id: multiclass-feature-a
+type: classfeature
+name: Multiclass Feature A
+description: It's a less cool feature.

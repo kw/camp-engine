@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import ClassVar
-from typing import Iterable
 from typing import Literal
 from typing import Type
 from typing import TypeAlias
@@ -42,13 +41,9 @@ class ClassDef(BaseFeatureDef):
     starting_features: Identifiers = None
     multiclass_features: Identifiers = None
     bonus_features: dict[int, Identifiers] | None = None
-    class_features: list[ClassFeatureDef] = Field(default_factory=list)
+    class_features: dict[Identifier, ClassFeatureDef] = Field(default_factory=dict)
     level_table_columns: dict[str, dict]
     levels: dict[int, dict]
-
-    @property
-    def subfeatures(self) -> Iterable[BaseFeatureDef]:
-        return self.class_features
 
     def aggregate(self, entry: FeatureEntry, agg: Aggregator) -> None:
         super().aggregate(entry, agg)
@@ -114,7 +109,6 @@ class SkillDef(BaseFeatureDef):
     type: Literal["skill"] = "skill"
     category: str = "General"
     cost: int
-    ranks: bool | int = False
     uses: int | None = None
     option: OptionDef | None = None
     grants: Grantables = None
