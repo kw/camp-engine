@@ -21,7 +21,6 @@ from camp.engine.utils import maybe_iter
 
 from . import utils
 
-NON_WORD = re.compile(r"[^\w-]+")
 _REQ_SYNTAX = re.compile(
     r"""(?P<prop>[a-zA-Z0-9_-]+)
     (?:@(?P<tier>\d+))?          # Tier, aka "@4"
@@ -376,17 +375,15 @@ class BaseRuleset(BaseModel, ABC):
     def validate_identifiers(self, identifiers: Identifiers) -> None:
         id_list: list[str]
         match identifiers:
-            case str(identifiers):
+            case str():
                 id_list = [identifiers]
-            case list(identifiers):
-                id_list = identifiers
             case None:
                 id_list = []
             case _:
-                raise TypeError(f"Unsupport identifiers: {identifiers}")
+                id_list = list(identifiers)
         # Identifiers provided may have extra syntax in the context
         # of requirements or grants. For example, "craftsman#Artist",
-        # "alchemy>3", "!magic-insensitive"
+        # "alchemy:3", "!magic-insensitive"
         for req in id_list:
             if not (parsed_req := parse_req(req)):
                 continue
@@ -604,35 +601,6 @@ class SlotEntry(BaseModel):
     immediate: bool = False
 
 
-class FeatureSource(BaseModel):
-    """
-    Attributes:
-        ranks: How many ranks were acquired from this source. If the
-            feature doesn't have ranks, this is blank.
-        slot: If the feature occupies a slot, the slot ID.
-        currency: If the feature was purchased, which currency was used?
-            Some features may be purchased with alternative currencies, such
-            as Roles in Geas 5 that can be purchased with either CP or SP.
-        cost: If the feature was purchased with a currency and the system
-            needs to remember the cost, it will be stored here. Some systems
-            have variable costs for skills depending on, say, the
-            character's chosen class, and changing class retroactively changes
-            the cost of already purchased skills, leading to a deficit or
-            surplus of currency; these systems do not need to remember the cost.
-            Meanwhile, other systems may only apply cost changes going forward,
-            so the cost of previously purchased items needs to be stored. And
-            in some cases, a system may generally do one thing but throw you
-            a curve ball, like that one option in Geas 5 Core that has a
-            different cost depending on what level you are when you initially
-            purchase it.
-    """
-
-    ranks: int | None = None
-    slot: str | None = None
-    currency: str | None = None
-    cost: int | None = None
-
-
 class OptionDef(BaseModel):
     """
 
@@ -682,7 +650,6 @@ class FeatureEntry(BaseModel):
 
     id: Identifier
     ranks: int | None = None
-    sources: list[FeatureSource] = pydantic.Field(default_factory=list)
     option: str | None = None
 
     @property

@@ -1,7 +1,6 @@
 name: Grants Bonus LP
 cost: 3
 grants:
-  - attribute: lp
-    bonus: 2
+  lp: 2
 description: >
   Increases life points by 2.
