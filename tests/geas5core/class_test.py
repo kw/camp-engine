@@ -94,3 +94,13 @@ def test_multiclass(character: Character):
     assert not character.meets_requirements("level$15")
     assert character.meets_requirements("level$7")
     assert character.meets_requirements("level<16")
+
+
+def test_spell_slots(character: Character):
+    character.add_feature(FeatureEntry(id="wizard", ranks=7))
+    assert character.meets_requirements("spells:7")
+    assert character.meets_requirements("spells@1:6")
+    assert character.meets_requirements("spells@2:1")
+    assert not character.meets_requirements("spells@3")
+    assert character.meets_requirements("spells@1#arcane:6")
+    assert not character.meets_requirements("spells@1#divine:6")

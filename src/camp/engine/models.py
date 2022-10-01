@@ -7,6 +7,7 @@ import typing
 from abc import ABC
 from abc import abstractmethod
 from abc import abstractproperty
+from typing import ClassVar
 from typing import Iterable
 from typing import Type
 from typing import TypeAlias
@@ -276,6 +277,7 @@ class BaseRuleset(BaseModel, ABC):
 
     name_overrides: dict[str, str] = pydantic.Field(default_factory=dict)
     _display_names: dict[str, str] = pydantic.PrivateAttr(default_factory=dict)
+    builtin_identifiers: ClassVar[set[Identifier]] = set()
 
     def __init__(self, **data):
         super().__init__(**data)
@@ -379,7 +381,7 @@ class BaseRuleset(BaseModel, ABC):
         identifiers or attributes without display names, you may need
         to override this.
         """
-        return identifier in self.features or identifier in self._display_names
+        return identifier in self.features or identifier in self.builtin_identifiers
 
     def validate_identifiers(self, identifiers: Identifiers) -> None:
         id_list: list[str]
@@ -396,15 +398,13 @@ class BaseRuleset(BaseModel, ABC):
         # of requirements or grants. For example, "craftsman#Artist",
         # "alchemy>3", "!magic-insensitive"
         for req in id_list:
-            # TODO: We'll need a more general parser later.
-            id, *tail = NON_WORD.split(req)
-            # If there's a prefix operator, the first result will be empty, skip it.
-            if tail and not id:
-                id, *tail = tail
-            if not id:
-                raise ValueError(f'Invalid identifier "{req}"')
-            if not self.identifier_defined(id):
-                raise ValueError(f'Required identifier "{id}" not found in ruleset.')
+            if not (parsed_req := parse_req(req)):
+                continue
+            for id in parsed_req.identifiers():
+                if not self.identifier_defined(id):
+                    raise ValueError(
+                        f'Required identifier "{id}" not found in ruleset.'
+                    )
 
 
 class CharacterMetadata(BaseModel):

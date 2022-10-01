@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import ClassVar
 from typing import Iterable
 from typing import Literal
 from typing import Type
@@ -94,7 +95,7 @@ class ClassDef(BaseFeatureDef):
                             f"{tier_id}#{self.sphere}", slot_value, do_max=False
                         )
                         agg.aggregate(tier_id, slot_value)
-                        agg.aggregate(attr, value)
+                        agg.aggregate(attr, slot_value)
                 case _:
                     # Basic attributes, currencies, etc.
                     agg.aggregate(attr, value, do_max=False)
@@ -208,6 +209,22 @@ class Ruleset(BaseRuleset):
     flaw_overcome: int = 2
     xp_table: dict[int, int]
     lp_table: dict[int, int]
+    builtin_identifiers: ClassVar[set[Identifier]] = {
+        "xp",
+        "lp",
+        "cp",
+        "breedcap",
+        "armor",
+        "arcane",
+        "divine",
+        "martial",
+        "caster",
+        "level",
+        "spells",
+        "powers",
+        "utilities",
+        "cantrips",
+    }
 
     def feature_model_types(self) -> ModelDefinition:
         return FeatureDefinitions  # type: ignore[return-value]
