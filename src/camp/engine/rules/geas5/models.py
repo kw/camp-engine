@@ -21,13 +21,13 @@ from camp.engine.utils import Aggregator
 from camp.engine.utils import maybe_iter
 
 
-class GrantAttribute(BaseModel):
-    attribute: str
-    bonus: int
+class Choice(BaseModel):
+    choices: Grantables
 
 
-Grantable: TypeAlias = Identifier | GrantAttribute
-Grantables: TypeAlias = Identifier | GrantAttribute | list[Grantable] | None
+Grantable: TypeAlias = Identifier | Choice | dict[Identifier, int]
+Grantables: TypeAlias = list[Grantable] | Grantable | None
+Choice.update_forward_refs()
 
 
 class ClassFeatureDef(BaseFeatureDef):
@@ -116,8 +116,10 @@ class SkillDef(BaseFeatureDef):
     def post_validate(self, ruleset: BaseRuleset) -> None:
         super().post_validate(ruleset)
         for grant in maybe_iter(self.grants):
-            if isinstance(grant, GrantAttribute):
-                ruleset.validate_identifiers(grant.attribute)
+            if isinstance(grant, Choice):
+                ruleset.validate_identifiers(grant.choices)
+            elif isinstance(grant, dict):
+                ruleset.validate_identifiers(grant.keys())
             elif isinstance(grant, str):
                 ruleset.validate_identifiers(grant)
 
