@@ -8,13 +8,6 @@ starting_features:
 multiclass_features:
   - caster-starting-b2
   - multiclass-feature-b
-class_features:
-  - name: Starting Feature B
-    id: starting-feature-b
-    description: It's a cool feature, but for divine casters
-  - name: Multiclass Feature B
-    id: multiclass-feature-b
-    description: It's a less cool feature, but for divine casters
 level_table_columns:
   spikes: {name: Spikes, type: attribute}
   prepared: {name: Prepared Spells, type: local}
@@ -29,3 +22,13 @@ levels:
   5: {spikes: 1, prepared: 6, cantrips: 2, spells: [5], cp: 8}
   6: {spikes: 1, prepared: 7, cantrips: 2, spells: [6], cp: 10}
   7: {spikes: 1, prepared: 8, cantrips: 2, spells: [6, 1], cp: 12}
+---
+name: Starting Feature B
+type: classfeature
+id: starting-feature-b
+description: It's a cool feature, but for divine casters
+---
+name: Multiclass Feature B
+type: classfeature
+id: multiclass-feature-b
+description: It's a less cool feature, but for divine casters

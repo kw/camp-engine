@@ -234,7 +234,6 @@ def _parse(
             data["def_path"] = str(path)
             obj = pydantic.parse_obj_as(model, data)
             yield obj
-            yield from obj.subfeatures
         except pydantic.ValidationError as exc:
             if with_bad_defs:
                 yield models.BadDefinition(

@@ -202,6 +202,7 @@ class BaseFeatureDef(BaseModel):
     def_path: str | None = None
     tags: set[str] = pydantic.Field(default_factory=set)
     description: str | None = None
+    ranks: bool | int = False
     option: OptionDef | None = None
     multiple: bool = False
 
@@ -215,17 +216,6 @@ class BaseFeatureDef(BaseModel):
     @classmethod
     def type_key(cls) -> str:
         return cls.__fields__["type"].type_.args[0]
-
-    @property
-    def subfeatures(self) -> Iterable[BaseFeatureDef]:
-        """Provide any subfeatures present in this feature definition.
-
-        Subfeatures might include things like a class feature that provides
-        one of five possible benefits depending on your preferred combat style.
-        Since these options are not used outside of the class, you may wish to
-        define your feature language to include them inline in the class definition.
-        """
-        return []
 
     def post_validate(self, ruleset: BaseRuleset) -> None:
         self.requires = parse_req(self.requires)
