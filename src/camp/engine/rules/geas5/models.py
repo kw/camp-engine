@@ -32,6 +32,7 @@ Choice.update_forward_refs()
 
 class ClassFeatureDef(BaseFeatureDef):
     type: Literal["classfeature"] = "classfeature"
+    class_: str | None = Field(alias="class", default=None)
     grants: Grantables = None
 
 
@@ -126,9 +127,9 @@ class SkillDef(BaseFeatureDef):
 
 class PowerDef(BaseFeatureDef):
     type: Literal["power"] = "power"
-    sphere: Literal["arcane", "divine", "martial"]
-    tier: Literal[0, 1, 2, 3, 4]
-    class_: str = Field(alias="class")
+    sphere: Literal["arcane", "divine", "martial", None] = None
+    tier: Literal[0, 1, 2, 3, 4] = 0
+    class_: str | None = Field(alias="class", default=None)
     incant_prefix: str | None = None
     incant: str | None = None
     call: str | None = None

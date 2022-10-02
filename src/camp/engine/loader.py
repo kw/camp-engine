@@ -18,13 +18,9 @@ try:
 except ImportError:
     import tomli as tomllib  # type: ignore[no-redef]
 
-
-# Generic type for a particular model class.
-M = typing.TypeVar("M", bound=pydantic.BaseModel)
-# Generic type representing a generator that returns models of type M or BadDefinitions.
-ModelGenerator = typing.Generator[M, None, None]
-
-PathLike = pathlib.Path | zipfile.Path
+Models: typing.TypeAlias = typing.Iterable[pydantic.BaseModel]
+FeatureTypeMap: typing.TypeAlias = dict[str, typing.Type[models.BaseFeatureDef]]
+PathLike: typing.TypeAlias = pathlib.Path | zipfile.Path
 
 
 def load_ruleset(
@@ -64,15 +60,18 @@ def load_ruleset(
                 of pydantic models, but got `{feature_defs}` instead."""
             )
         )
-    feature_dict: dict[str, models.BaseFeatureDef] = {}
+    feature_types = _feature_model_map(feature_defs)
+    feature_dict: FeatureTypeMap = {}
     bad_defs: list[models.BadDefinition] = []
     for subpath in _iter_dirs(path):
         for model in _parse_directory(
-            subpath, feature_defs, with_bad_defs=with_bad_defs
+            subpath, feature_types, with_bad_defs=with_bad_defs
         ):
             if isinstance(model, models.BadDefinition):
                 bad_defs.append(model)
-            elif model.id in ruleset.features:
+            elif (
+                model.id in ruleset.features or model.id in ruleset.builtin_identifiers
+            ):
                 bad_defs.append(
                     models.BadDefinition(
                         path=model.def_path,
@@ -100,7 +99,7 @@ def load_ruleset(
                     path=feature.def_path,
                     data=feature.json(),
                     raw_data=None,
-                    exception_type=repr(type(exc)),
+                    exception_type=type(exc).__name__,
                     exception_message=str(exc),
                 )
             )
@@ -142,8 +141,11 @@ def _parse_ruleset_dict(ruleset_dict: dict):
 
 
 def _parse_directory(
-    path: PathLike, model: M, with_bad_defs: bool = True, defaults=None
-) -> ModelGenerator:
+    path: PathLike,
+    feature_types: FeatureTypeMap,
+    with_bad_defs: bool = True,
+    defaults=None,
+) -> Models:
     defaults = defaults.copy() if defaults else {}
     # Load defaults. There's proably not more than one, but if so, okay I guess?
     for subpath in _iter_files(path, stem="__defaults__"):
@@ -157,12 +159,12 @@ def _parse_directory(
             # We may define some with meanings in the future.
             continue
         yield from _parse(
-            subpath, model, with_bad_defs=with_bad_defs, defaults=defaults
+            subpath, feature_types, with_bad_defs=with_bad_defs, defaults=defaults
         )
     # Now parse subdirectories, passing our current defaults up.
     for subpath in _iter_dirs(path):
         yield from _parse_directory(
-            subpath, model, with_bad_defs=with_bad_defs, defaults=defaults
+            subpath, feature_types, with_bad_defs=with_bad_defs, defaults=defaults
         )
 
 
@@ -214,9 +216,24 @@ def _verify_feature_model_class(model: models.ModelDefinition) -> bool:
     return False
 
 
+def _feature_model_map(model: models.ModelDefinition) -> FeatureTypeMap:
+    if isinstance(model, types.UnionType):
+        feature_map: FeatureTypeMap = dict()
+        for m in (_feature_model_map(c) for c in model.__args__):
+            feature_map.update(m)
+        return feature_map
+    elif issubclass(model, models.BaseFeatureDef):
+        return {model.type_key(): model}
+    else:
+        raise TypeError(f"Expected feature type, got {model}")
+
+
 def _parse(
-    path: PathLike, model: M, with_bad_defs: bool = True, defaults=None
-) -> ModelGenerator:
+    path: PathLike,
+    feature_types: FeatureTypeMap,
+    with_bad_defs: bool = True,
+    defaults=None,
+) -> Models:
     count = 0
     for raw_data in _parse_raw(path):
         if "id" not in raw_data:
@@ -232,15 +249,25 @@ def _parse(
         try:
             data = _dict_merge(defaults, raw_data)
             data["def_path"] = str(path)
+            type_key = data.get("type")
+            if not type_key:
+                raise TypeError(
+                    'Type key not specified for this entry (e.g., `type: "skill")`'
+                )
+            model = feature_types.get(type_key)
+            if not model:
+                raise TypeError(
+                    f'No feature model corresponding to type key "{type_key}"'
+                )
             obj = pydantic.parse_obj_as(model, data)
             yield obj
-        except pydantic.ValidationError as exc:
+        except (TypeError, pydantic.ValidationError) as exc:
             if with_bad_defs:
                 yield models.BadDefinition(
                     path=str(path),
                     data=data,
                     raw_data=raw_data,
-                    exception_type=repr(type(exc)),
+                    exception_type=type(exc).__name__,
                     exception_message=str(exc),
                 )
             else:

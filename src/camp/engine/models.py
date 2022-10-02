@@ -208,13 +208,13 @@ class BaseFeatureDef(BaseModel):
     @classmethod
     def default_name(cls) -> str:
         try:
-            return cls._type_key().title()
+            return cls.type_key().title()
         except Exception:
             return str(cls)
 
     @classmethod
     def type_key(cls) -> str:
-        return cls.__fields__["type"].type_.args[0]
+        return cls.__fields__["type"].type_.__args__[0]
 
     def post_validate(self, ruleset: BaseRuleset) -> None:
         self.requires = parse_req(self.requires)
