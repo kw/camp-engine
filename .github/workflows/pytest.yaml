@@ -14,6 +14,8 @@ jobs:
         python-version: ["3.10", "3.11.0-rc.1"]
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: recursive
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v3
         with:
@@ -22,6 +24,6 @@ jobs:
         run: |
           pip install pipenv==2022.3.28
           pipenv install -d
-      - name: pyest
+      - name: pytest
         run: |
           pipenv run pytest
