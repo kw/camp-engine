@@ -168,15 +168,16 @@ def _parse_directory(
         )
 
 
-def _iter_dirs(path: PathLike) -> typing.Generator[PathLike, None, None]:
-    for subpath in (p for p in path.iterdir() if p.is_dir()):
-        yield subpath
+def _iter_dirs(path: PathLike) -> typing.Iterable[PathLike]:
+    for subpath in (p for p in path.iterdir()):
+        if subpath.is_dir() and not _stem(subpath).startswith("."):
+            yield subpath
 
 
-def _iter_files(
-    path: PathLike, stem=None, suffix=None
-) -> typing.Generator[PathLike, None, None]:
+def _iter_files(path: PathLike, stem=None, suffix=None) -> typing.Iterable[PathLike]:
     for subpath in (p for p in path.iterdir() if p.is_file()):
+        if _stem(subpath).startswith("."):
+            continue
         if stem and _stem(subpath) != stem:
             continue
         if suffix and not _suffix(subpath) != suffix:

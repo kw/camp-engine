@@ -9,7 +9,7 @@ from camp.engine import loader
 BASEDIR = pathlib.Path(__file__).parent.parent
 PATH_PARAMS = [
     pytest.param(BASEDIR / "examples" / "geastest", id="geastest"),
-    pytest.param(BASEDIR / "repos" / "geas5core" / "core", id="geas5core"),
+    pytest.param(BASEDIR / "repos" / "geas5core", id="geas5core"),
 ]
 
 FAIL_TEMPLATE = """
