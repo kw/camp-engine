@@ -13,7 +13,6 @@ from camp.engine.models import BaseModel
 from camp.engine.models import BaseRuleset
 from camp.engine.models import FeatureEntry
 from camp.engine.models import Identifier
-from camp.engine.models import Identifiers
 from camp.engine.models import ModelDefinition
 from camp.engine.models import OptionDef
 from camp.engine.models import RulesDecision
@@ -35,30 +34,36 @@ class ClassFeatureDef(BaseFeatureDef):
     class_: str | None = Field(alias="class", default=None)
     grants: Grantables = None
 
+    def post_validate(self, ruleset: BaseRuleset) -> None:
+        super().post_validate(ruleset)
+        if self.grants:
+            ruleset.validate_identifiers(grantable_identifiers(self.grants))
+
 
 class ClassDef(BaseFeatureDef):
     type: Literal["class"] = "class"
     sphere: Literal["arcane", "divine", "martial"] = "martial"
-    starting_features: Identifiers = None
-    multiclass_features: Identifiers = None
-    bonus_features: dict[int, Identifiers] | None = None
-    class_features: dict[Identifier, ClassFeatureDef] = Field(default_factory=dict)
+    starting_features: Grantables = None
+    multiclass_features: Grantables = None
+    bonus_features: dict[int, Grantables] | None = None
     level_table_columns: dict[str, dict]
     levels: dict[int, dict]
+    # By default, any number of levels can be taken in a class.
+    ranks: bool | int = True
 
     def aggregate(self, entry: FeatureEntry, agg: Aggregator) -> None:
         super().aggregate(entry, agg)
         level = entry.ranks if entry.ranks is not None else 1
 
         # Aggregate caster/martial/sphere counters
-        agg.aggregate(self.sphere, level)
+        agg.aggregate_prop(self.sphere, level)
         if self.sphere != "martial":
-            agg.aggregate("caster", level)
+            agg.aggregate_prop("caster", level)
 
         # Character level aggregate. Note that the "max" aggregation
         # is also done, so 'level$N' can test the highest level in
         # a single class.
-        agg.aggregate("level", level)
+        agg.aggregate_prop("level", level)
 
         # Attributes by level
         if level in self.levels:
@@ -75,9 +80,9 @@ class ClassDef(BaseFeatureDef):
                     # character has, for example, arcane prepared spells,
                     # or any prepared spells at all. So we aggregate using
                     # the class ID and the class sphere as extra options.
-                    agg.aggregate(f"{attr}#{self.id}", value, do_max=False)
-                    agg.aggregate(f"{attr}#{self.sphere}", value)
-                    agg.aggregate(attr, value)
+                    agg.aggregate_prop(f"{attr}#{self.id}", value, do_max=False)
+                    agg.aggregate_prop(f"{attr}#{self.sphere}", value)
+                    agg.aggregate_prop(attr, value)
                 case "power_slots":
                     # These are local attributes whose value is specified as a list.
                     # Each value is for a different tier of power slots, so we use the
@@ -86,24 +91,30 @@ class ClassDef(BaseFeatureDef):
                     # the sphere type.
                     for i, slot_value in enumerate(value):
                         tier_id = f"{attr}@{i+1}"
-                        agg.aggregate(f"{tier_id}#{self.id}", slot_value, do_max=False)
-                        agg.aggregate(
+                        agg.aggregate_prop(
+                            f"{tier_id}#{self.id}", slot_value, do_max=False
+                        )
+                        agg.aggregate_prop(
                             f"{tier_id}#{self.sphere}", slot_value, do_max=False
                         )
-                        agg.aggregate(tier_id, slot_value)
-                        agg.aggregate(attr, slot_value)
+                        agg.aggregate_prop(tier_id, slot_value)
+                        agg.aggregate_prop(attr, slot_value)
                 case _:
                     # Basic attributes, currencies, etc.
-                    agg.aggregate(attr, value, do_max=False)
+                    agg.aggregate_prop(attr, value, do_max=False)
 
     def post_validate(self, ruleset: BaseRuleset) -> None:
         super().post_validate(ruleset)
         if self.starting_features:
-            ruleset.validate_identifiers(self.starting_features)
+            ruleset.validate_identifiers(grantable_identifiers(self.starting_features))
         if self.multiclass_features:
-            ruleset.validate_identifiers(self.multiclass_features)
+            ruleset.validate_identifiers(
+                grantable_identifiers(self.multiclass_features)
+            )
         if self.bonus_features:
-            ruleset.validate_identifiers(self.bonus_features.values())
+            ruleset.validate_identifiers(
+                grantable_identifiers(list(self.bonus_features.values()))
+            )
 
 
 class SkillDef(BaseFeatureDef):
@@ -116,13 +127,7 @@ class SkillDef(BaseFeatureDef):
 
     def post_validate(self, ruleset: BaseRuleset) -> None:
         super().post_validate(ruleset)
-        for grant in maybe_iter(self.grants):
-            if isinstance(grant, Choice):
-                ruleset.validate_identifiers(grant.choices)
-            elif isinstance(grant, dict):
-                ruleset.validate_identifiers(grant.keys())
-            elif isinstance(grant, str):
-                ruleset.validate_identifiers(grant)
+        ruleset.validate_identifiers(grantable_identifiers(self.grants))
 
 
 class PowerDef(BaseFeatureDef):
@@ -144,6 +149,7 @@ class PowerDef(BaseFeatureDef):
     def post_validate(self, ruleset: BaseRuleset) -> None:
         super().post_validate(ruleset)
         ruleset.validate_identifiers(self.class_)
+        ruleset.validate_identifiers(grantable_identifiers(self.grants))
 
 
 FeatureDefinitions: TypeAlias = ClassDef | ClassFeatureDef | SkillDef | PowerDef
@@ -172,6 +178,30 @@ class Character(BaseCharacter):
                 )
             elif not feature.option:
                 return RulesDecision(success=False, reason="Already have this feature.")
+
+        # There are no negative or zero ranks allowed in Geas at present.
+        if entry.ranks < 1:
+            return RulesDecision(
+                success=False,
+                reason=f"Positive number of ranks required, but {entry.ranks} ranks given.",
+            )
+
+        # Check that the specified number of ranks matches the spec.
+        match feature.ranks:
+            case True:
+                pass
+            case False:
+                if entry.ranks != 1:
+                    return RulesDecision(
+                        success=False,
+                        reason=f"Ranks not allowed here, but {entry.ranks} ranks given.",
+                    )
+            case int():
+                if entry.ranks > feature.ranks:
+                    return RulesDecision(
+                        success=False,
+                        reason=f"At most {feature.ranks} ranks allowed, but {entry.ranks} ranks given.",
+                    )
 
         if feature.option and not entry.option:
             # The feature requires an option, but one was not provided. This happens
@@ -229,3 +259,22 @@ class Ruleset(BaseRuleset):
     @property
     def sheet_type(self) -> Type[BaseCharacter]:
         return Character
+
+
+def grantable_identifiers(grantables: Grantables) -> set[Identifier]:
+    id_set = set()
+    for g in maybe_iter(grantables):
+        match g:
+            case Choice():
+                id_set.update(grantable_identifiers(g.choices))
+            case list():
+                id_set.update(grantable_identifiers(g))
+            case dict():
+                id_set.update(list(g.keys()))
+            case str():
+                id_set.add(g)
+            case None:
+                pass
+            case _:
+                raise NotImplementedError(f"Unexpected grantable type {type(g)}")
+    return id_set

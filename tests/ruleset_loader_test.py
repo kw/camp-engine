@@ -1,10 +1,10 @@
-import json
 import pathlib
 import shutil
 
 import pytest
 
 from camp.engine import loader
+from camp.engine import utils
 
 BASEDIR = pathlib.Path(__file__).parent.parent
 PATH_PARAMS = [
@@ -35,14 +35,13 @@ def test_load_ruleset(path):
     ruleset = loader.load_ruleset(path)
     if ruleset.bad_defs:
         bd = ruleset.bad_defs[0]
-        if "description" in bd.data:
-            bd.data["description"] = "<...>"
+        bd.data["description"] = "<...>"
         pytest.fail(
             FAIL_TEMPLATE.format(
                 path=bd.path,
                 exception_type=bd.exception_type,
                 exception_message=bd.exception_message,
-                data=json.dumps(bd.data, sort_keys=True, indent=4),
+                data=utils.dump(bd.data, sort_keys=True, indent=4),
             ),
             pytrace=False,
         )

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import types
 import typing
@@ -34,6 +33,9 @@ _REQ_SYNTAX = re.compile(
 
 
 class BaseModel(pydantic.BaseModel):
+    def dump(self, as_json=True) -> str | dict:
+        return utils.dump(self, as_json)
+
     class Config:
         extra = pydantic.Extra.forbid
 
@@ -128,7 +130,7 @@ class PropReq(BoolExpr):
             id = f"{id}@{self.tier}"
         if self.option is not None:
             id = f"{id}#{self.option.replace(' ', '_')}"
-        ranks = agg.get(id)
+        ranks = agg.get_prop(id)
         if self.minimum is not None:
             if ranks < self.minimum:
                 return False
@@ -136,7 +138,7 @@ class PropReq(BoolExpr):
             if ranks >= self.less_than:
                 return False
         elif self.single is not None:
-            max_ranks = agg.get_max(id)
+            max_ranks = agg.get_prop_max(id)
             if max_ranks < self.single:
                 return False
         else:
@@ -223,9 +225,9 @@ class BaseFeatureDef(BaseModel):
 
     def aggregate(self, entry: FeatureEntry, agg: utils.Aggregator) -> None:
         ranks = entry.ranks if entry.ranks is not None else 1
-        agg.aggregate(entry.id, ranks)
+        agg.aggregate_prop(entry.id, ranks)
         if entry.option:
-            agg.aggregate(entry.option_id, ranks, do_max=False)
+            agg.aggregate_prop(entry.option_id, ranks, do_max=False)
 
 
 class BadDefinition(BaseModel):
@@ -353,12 +355,6 @@ class BaseRuleset(BaseModel, ABC):
                 f" with ruleset {self.id} v{self.version}"
             )
         return data
-
-    def dump(self) -> str:
-        return json.dumps(
-            self.dict(by_alias=True, exclude_unset=True, exclude_none=True),
-            cls=utils.JSONEncoder,
-        )
 
     def identifier_defined(self, identifier: Identifier) -> bool:
         """Check if the identifier is meaningful in the ruleset.
@@ -649,7 +645,7 @@ class FeatureEntry(BaseModel):
     """
 
     id: Identifier
-    ranks: int | None = None
+    ranks: pydantic.NonNegativeInt = 1
     option: str | None = None
 
     @property
