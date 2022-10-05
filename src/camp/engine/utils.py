@@ -8,6 +8,8 @@ from typing import Any
 from typing import Iterable
 from typing import TypeVar
 
+import pydantic
+
 
 def import_name(name: str) -> Any:
     """Imports the specified thing.
@@ -54,22 +56,31 @@ class JSONEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
+def dump(data: pydantic.BaseModel | dict, as_json=True, *args, **kwargs) -> str | dict:
+    if not isinstance(data, dict):
+        data = data.dict(by_alias=True, exclude_unset=True, exclude_none=True)
+    if as_json:
+        return json.dumps(data, cls=JSONEncoder, *args, **kwargs)
+    else:
+        return data
+
+
 class Aggregator:
-    _MAX = ":max_{}"
-    _cache: defaultdict[str, int]
+    _max_props: defaultdict[str, int]
+    _props: defaultdict[str, int]
 
     def __init__(self):
-        self._cache = defaultdict(lambda: 0)
+        self._props = defaultdict(lambda: 0)
+        self._max_props = defaultdict(lambda: 0)
 
-    def aggregate(self, prop: str, value: int, do_max: bool = True):
-        self._cache[prop] += value
+    def aggregate_prop(self, prop: str, value: int, do_max: bool = True):
+        self._props[prop] += value
         if do_max:
-            max_prop = self._MAX.format(prop)
-            if value > self._cache[max_prop]:
-                self._cache[max_prop] = value
+            if value > self._max_props[prop]:
+                self._max_props[prop] = value
 
-    def get(self, prop: str) -> int:
-        return self._cache[prop]
+    def get_prop(self, prop: str) -> int:
+        return self._props[prop]
 
-    def get_max(self, prop: str) -> int:
-        return self._cache[self._MAX.format(prop)]
+    def get_prop_max(self, prop: str) -> int:
+        return self._max_props[prop]

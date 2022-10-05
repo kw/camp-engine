@@ -70,7 +70,7 @@ def load_ruleset(
                 bad_defs.append(
                     models.BadDefinition(
                         path=model.def_path,
-                        data=model,
+                        data=model.dump(as_json=False),
                         raw_data=None,
                         exception_type="NonUniqueId",
                         exception_message=f"Non-unique ID {model.id}",
@@ -92,7 +92,7 @@ def load_ruleset(
             ruleset.bad_defs.append(
                 models.BadDefinition(
                     path=feature.def_path,
-                    data=feature.json(),
+                    data=model.dump(as_json=False),
                     raw_data=None,
                     exception_type=type(exc).__name__,
                     exception_message=str(exc),
