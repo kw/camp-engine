@@ -7,16 +7,11 @@ import zipfile
 from copy import deepcopy
 
 import pydantic
+import tomllib
 import yaml
 
 from . import models
 from . import utils
-
-try:
-    # TOML parser is part of the standard library starting at 3.11
-    import tomllib  # type: ignore[reportMissingImports]
-except ImportError:
-    import tomli as tomllib  # type: ignore[no-redef]
 
 Models: typing.TypeAlias = typing.Iterable[pydantic.BaseModel]
 FeatureTypeMap: typing.TypeAlias = dict[str, typing.Type[models.BaseFeatureDef]]
