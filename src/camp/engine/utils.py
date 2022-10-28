@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import sys
-from collections import defaultdict
 from importlib import import_module
 from typing import Any
 from typing import Iterable
@@ -63,24 +62,3 @@ def dump(data: pydantic.BaseModel | dict, as_json=True, *args, **kwargs) -> str 
         return json.dumps(data, cls=JSONEncoder, *args, **kwargs)
     else:
         return data
-
-
-class Aggregator:
-    _max_props: defaultdict[str, int]
-    _props: defaultdict[str, int]
-
-    def __init__(self):
-        self._props = defaultdict(lambda: 0)
-        self._max_props = defaultdict(lambda: 0)
-
-    def aggregate_prop(self, prop: str, value: int, do_max: bool = True):
-        self._props[prop] += value
-        if do_max:
-            if value > self._max_props[prop]:
-                self._max_props[prop] = value
-
-    def get_prop(self, prop: str) -> int:
-        return self._props[prop]
-
-    def get_prop_max(self, prop: str) -> int:
-        return self._max_props[prop]

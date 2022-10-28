@@ -6,6 +6,7 @@ import typing
 from abc import ABC
 from abc import abstractmethod
 from abc import abstractproperty
+from functools import cache
 from typing import ClassVar
 from typing import Iterable
 from typing import Type
@@ -15,10 +16,9 @@ from uuid import uuid4
 import pydantic
 from packaging import version
 
-from camp.engine.utils import Aggregator
-from camp.engine.utils import maybe_iter
-
+from . import aggregator
 from . import utils
+from .utils import maybe_iter
 
 _REQ_SYNTAX = re.compile(
     r"""(?P<prop>[a-zA-Z0-9_-]+)
@@ -42,7 +42,7 @@ class BaseModel(pydantic.BaseModel):
 
 class BoolExpr(BaseModel, ABC):
     @abstractmethod
-    def evaluate(self, agg: Aggregator) -> bool:
+    def evaluate(self, agg: aggregator.Aggregator) -> bool:
         ...
 
     def identifiers(self) -> set[Identifier]:
@@ -61,44 +61,74 @@ OptionValue: TypeAlias = str
 class AnyOf(BoolExpr):
     any: Requirements
 
-    def evaluate(self, agg: Aggregator) -> bool:
-        return any(op.evaluate(agg) for op in maybe_iter(self.any))
+    def evaluate(self, agg: aggregator.Aggregator) -> bool:
+        # TODO: This could have been a pretty simple generator expression,
+        # but mypy isn't as good as pylance at recognizing when types have
+        # been constrained. Maybe do something about it, maybe stop using mypy.
+        for expr in maybe_iter(self.any):
+            if isinstance(expr, str):
+                raise TypeError(f"Expression '{expr}' expected to be parsed by now.")
+            if expr.evaluate(agg):
+                return True
+        return False
 
-    def identifiers(self):
+    def identifiers(self) -> set[Identifier]:
         ids = set()
         for op in maybe_iter(self.any):
-            ids |= op.identifiers()
+            if isinstance(op, str):
+                ids.add(op)
+            else:
+                ids |= op.identifiers()
         return ids
 
 
 class AllOf(BoolExpr):
     all: Requirements
 
-    def evaluate(self, agg: Aggregator) -> bool:
-        return all(op.evaluate(agg) for op in maybe_iter(self.all))
+    def evaluate(self, agg: aggregator.Aggregator) -> bool:
+        for expr in maybe_iter(self.all):
+            if isinstance(expr, str):
+                raise TypeError(f"Expression '{expr}' expected to be parsed by now.")
+            if not expr.evaluate(agg):
+                return False
+        return True
 
-    def identifiers(self):
+    def identifiers(self) -> set[Identifier]:
         ids = set()
         for op in maybe_iter(self.all):
-            ids |= op.identifiers()
+            if isinstance(op, str):
+                ids.add(op)
+            else:
+                ids |= op.identifiers()
         return ids
 
 
 class NoneOf(BoolExpr):
     none: Requirements
 
-    def evaluate(self, agg: Aggregator) -> bool:
-        return not any(op.evaluate(agg) for op in maybe_iter(self.none))
+    def evaluate(self, agg: aggregator.Aggregator) -> bool:
+        for expr in maybe_iter(self.none):
+            if isinstance(expr, str):
+                raise TypeError(f"Expression '{expr}' expected to be parsed by now.")
+            if expr.evaluate(agg):
+                return False
+        return True
 
-    def identifiers(self):
+    def identifiers(self) -> set[Identifier]:
         ids = set()
         for op in maybe_iter(self.none):
-            ids |= op.identifiers()
+            if isinstance(op, str):
+                ids.add(op)
+            else:
+                ids |= op.identifiers()
         return ids
 
 
-class PropReq(BoolExpr):
-    """Things that might get parsed out of a requirement string.
+class PropExpression(BoolExpr):
+    """Things that might get parsed out of a property expression.
+
+    Mostly used for requirement parsing and evaluation, but can be used
+    elsewhere.
 
     Attributes:
         prop: The property being tested. Often a feature ID. Required.
@@ -124,12 +154,14 @@ class PropReq(BoolExpr):
     single: int | None = None
     less_than: int | None = None
 
-    def evaluate(self, agg: Aggregator) -> bool:
+    def evaluate(self, agg: aggregator.Aggregator) -> bool:
         id = self.prop
         if self.tier is not None:
             id = f"{id}@{self.tier}"
         if self.option is not None:
             id = f"{id}#{self.option.replace(' ', '_')}"
+        if not agg.has_property(id):
+            return False
         ranks = agg.get_prop(id)
         if self.minimum is not None:
             if ranks < self.minimum:
@@ -150,7 +182,7 @@ class PropReq(BoolExpr):
         return set([self.prop])
 
     @classmethod
-    def parse(cls, req: str) -> PropReq:
+    def parse(cls, req: str) -> PropExpression:
         if match := _REQ_SYNTAX.fullmatch(req):
             groups = match.groupdict()
             prop = groups["prop"]
@@ -187,12 +219,12 @@ class PropReq(BoolExpr):
 # The requirements language involves a lot of recursive definitions,
 # so define it here. Pydantic models using forward references need
 # to be poked to know the reference is ready, so update them as well.
-Requirement: TypeAlias = AnyOf | AllOf | NoneOf | PropReq | str
+Requirement: TypeAlias = AnyOf | AllOf | NoneOf | PropExpression | str
 Requirements: TypeAlias = list[Requirement] | Requirement | None
 AnyOf.update_forward_refs()
 AllOf.update_forward_refs()
 NoneOf.update_forward_refs()
-PropReq.update_forward_refs()
+PropExpression.update_forward_refs()
 
 
 class BaseFeatureDef(BaseModel):
@@ -223,11 +255,43 @@ class BaseFeatureDef(BaseModel):
         if self.requires:
             ruleset.validate_identifiers(list(self.requires.identifiers()))
 
-    def aggregate(self, entry: FeatureEntry, agg: utils.Aggregator) -> None:
+    def aggregate(self, entry: Purchase, agg: aggregator.Aggregator) -> None:
         ranks = entry.ranks if entry.ranks is not None else 1
-        agg.aggregate_prop(entry.id, ranks)
         if entry.option:
-            agg.aggregate_prop(entry.option_id, ranks, do_max=False)
+            # Add property on-demand.
+            if not agg.has_property(entry.option_id):
+                agg.define_property(
+                    aggregator.Property(
+                        id=entry.option_id,
+                        type="feature",
+                        tags=self.tags | {self.id},
+                    )
+                )
+            agg.apply_mod(entry.option_id, ranks)
+        else:
+            agg.apply_mod(entry.id, ranks)
+
+    def define_property(self, agg: aggregator.Aggregator):
+        if not agg.has_property(self.id):
+            if self.option is None:
+                # This is a normal feature property.
+                agg.define_property(
+                    aggregator.Property(
+                        id=self.id,
+                        type="feature",
+                        tags=self.tags,
+                    )
+                )
+            else:
+                # We'll define properties for the options on-demand.
+                # Create a tag property for the base feature.
+                agg.define_property(
+                    aggregator.Property(
+                        id=self.id,
+                        type="feature",
+                        is_tag=True,
+                    )
+                )
 
 
 class BadDefinition(BaseModel):
@@ -247,16 +311,6 @@ class BadDefinition(BaseModel):
     exception_message: str
 
 
-class AttributeDef(BaseModel):
-    id: str
-    name: str
-    base: int | None = None
-    min: int | None = None
-    max: int | None = None
-    scoped: bool = False
-    currency: bool = False
-
-
 class BaseRuleset(BaseModel, ABC):
     id: str
     name: str
@@ -268,6 +322,7 @@ class BaseRuleset(BaseModel, ABC):
 
     name_overrides: dict[str, str] = pydantic.Field(default_factory=dict)
     _display_names: dict[str, str] = pydantic.PrivateAttr(default_factory=dict)
+    attributes: ClassVar[Iterable[BaseAttributeDef]] = []
     builtin_identifiers: ClassVar[set[Identifier]] = set()
 
     def __init__(self, **data):
@@ -290,6 +345,11 @@ class BaseRuleset(BaseModel, ABC):
     @abstractproperty
     def sheet_type(self) -> Type[BaseCharacter]:
         ...
+
+    @classmethod
+    @cache
+    def attribute_map(cls) -> dict[str, BaseAttributeDef]:
+        return {a.id: a for a in cls.attributes}
 
     @property
     def display_names(self) -> dict[str, str]:
@@ -366,7 +426,11 @@ class BaseRuleset(BaseModel, ABC):
         identifiers or attributes without display names, you may need
         to override this.
         """
-        return identifier in self.features or identifier in self.builtin_identifiers
+        return (
+            identifier in self.features
+            or identifier in self.attribute_map()
+            or identifier in self.builtin_identifiers
+        )
 
     def validate_identifiers(self, identifiers: Identifiers) -> None:
         id_list: list[str]
@@ -388,6 +452,25 @@ class BaseRuleset(BaseModel, ABC):
                     raise ValueError(
                         f'Required identifier "{id}" not found in ruleset.'
                     )
+
+    def aggregator(self) -> aggregator.Aggregator:
+        agg = aggregator.Aggregator()
+        for feature in self.features.values():
+            feature.define_property(agg)
+        for attribute in self.attributes:
+            # TODO: Handle scoped somehow?
+            if not attribute.scoped:
+                agg.define_property(
+                    aggregator.Property(
+                        id=attribute.id,
+                        type="attribute",
+                        base=attribute.default_value or 0,
+                        min_value=attribute.min_value,
+                        max_value=attribute.max_value,
+                        is_tag=attribute.is_tag,
+                    )
+                )
+        return agg
 
 
 class CharacterMetadata(BaseModel):
@@ -447,23 +530,26 @@ class BaseCharacter(BaseModel, ABC):
     ruleset_id: str
     ruleset_version: str
     name: str | None = None
-    features: dict[str, list[FeatureEntry]] = pydantic.Field(default_factory=dict)
+    features: dict[str, list[Purchase]] = pydantic.Field(default_factory=dict)
 
     metadata: CharacterMetadata = pydantic.Field(default_factory=CharacterMetadata)
     _ruleset: BaseRuleset | None = pydantic.PrivateAttr(default=None)
-    _aggregate: utils.Aggregator = pydantic.PrivateAttr(
-        default_factory=utils.Aggregator
+    _aggregate: aggregator.Aggregator = pydantic.PrivateAttr(
+        default_factory=aggregator.Aggregator
     )
     _aggregate_dirty: bool = pydantic.PrivateAttr(default=True)
 
-    def can_add_feature(self, entry: FeatureEntry | str) -> RulesDecision:
+    def can_purchase(self, entry: Purchase | str) -> RulesDecision:
         return RulesDecision(success=False, reason="Not implemented")
 
-    def add_feature(self, entry: FeatureEntry | str) -> RulesDecision:
+    def purchase(self, entry: Purchase | str) -> RulesDecision:
         if isinstance(entry, str):
-            entry = FeatureEntry(id=entry)
+            entry = Purchase(id=entry)
 
-        rd = self.can_add_feature(entry)
+        feature = self._ruleset.features[entry.id]
+        entry.type = feature.type
+
+        rd = self.can_purchase(entry)
         if rd and rd.needs_option:
             return RulesDecision(
                 success=False,
@@ -479,11 +565,11 @@ class BaseCharacter(BaseModel, ABC):
     def attributes(self) -> list[AttributeEntry]:
         return []
 
-    def open_slots(self) -> list[SlotEntry]:
+    def open_slots(self) -> list[Slot]:
         return []
 
     @property
-    def feature_entries(self) -> Iterable[FeatureEntry]:
+    def feature_entries(self) -> Iterable[Purchase]:
         for entries in self.features.values():
             yield from entries
 
@@ -495,7 +581,7 @@ class BaseCharacter(BaseModel, ABC):
             if isinstance(req, str):
                 # It's unlikely that an unparsed string gets here, but if so,
                 # go ahead and parse it.
-                req = PropReq.parse(req)
+                req = PropExpression.parse(req)
             if not req.evaluate(agg):
                 # TODO: Extract failure messages
                 meets_all = False
@@ -508,7 +594,7 @@ class BaseCharacter(BaseModel, ABC):
     def aggregate(self):
         if not self._aggregate_dirty:
             return self._aggregate
-        agg = utils.Aggregator()
+        agg = self._ruleset.aggregator()
         for entry in self.feature_entries:
             if feature_def := self._ruleset.features.get(entry.id):
                 feature_def.aggregate(entry, agg)
@@ -583,18 +669,60 @@ class BaseCharacter(BaseModel, ABC):
         )
 
 
+class BaseAttributeDef(BaseModel):
+    """Attributes that might appear on a character sheet.
+
+    Attributes:
+        id: The identifier of the attribute.
+        name: The user-visible name of the attribute, if applicable.
+        abbrev: The abbreviation of the attribute, if applicable.
+        min_value: The lowest value for the attribute. If penalties
+            reduce it below this value, it will display as this minimum.
+        max_value: The highest value for the attribute. If bonuses
+            push it above this value, it will display as this maximum.
+        default_value: If the value may need to be displayed prior to the
+            character having anything contributing to the value, what should
+            be displayed or used?
+        scoped: If this attribute will be scoped to a particular class, role, breed, etc
+            instead of being a "global" attribute, mark this True.
+        tiered: If this attribute represents multiple tiers of sub-attributes
+            (spell levels, etc) mark this True.
+        tier_names: If a tiered attribute's tiers have specific names, name them here.
+        hidden: If True, will not be displayed by default.
+    """
+
+    id: Identifier
+    name: str | None = None
+    abbrev: str | None = None
+    min_value: int | None = 0
+    max_value: int | None = None
+    default_value: int | None = None
+    scoped: bool = False
+    tiered: bool = False
+    tier_names: list[str] | None = None
+    hidden: bool = False
+    is_tag: bool = False
+
+
 class AttributeEntry(BaseModel):
     id: Identifier
     value: int
-    max_value: int | None = None
     scope: str | None = None
 
 
-class SlotEntry(BaseModel):
-    id: Identifier
-    feature_type: str
-    requires: Requirements = None
-    immediate: bool = False
+class Discount(BaseModel):
+    id: Identifier = None
+    cp: pydantic.PositiveInt | None = None
+    per_rank: bool = True
+    min: pydantic.NonNegativeInt = 1
+
+
+class Slot(BaseModel):
+    slot: Identifier
+    choices: list[Identifiers] | None = None
+    feature_type: Identifier | None = None
+    discount: Discount | None = None
+    limit: pydantic.PositiveInt = 1
 
 
 class OptionDef(BaseModel):
@@ -624,16 +752,18 @@ class OptionDef(BaseModel):
     values_flag: str | None = None
 
 
-class FeatureEntry(BaseModel):
-    """Represents an instance of a feature for a character.
+class Purchase(BaseModel):
+    """Represents a specific purchase event for a character feature.
+
 
     Attributes:
         id: The ID of the feature definition. Note that some in some systems,
             certain features may have multiple instances on a character sheet.
             For example, in the d20 SRD, Weapon Focus can be taken multiple
             times, once per type of weapon.
-        ranks: If the feature has ranks or levels, the number of them currently
-            held by the character.
+        type: The feature type this represents. Mostly for convenience.
+        ranks: Number of ranks to purchase. If the feature does not have ranks,
+            use the default of "1".
 
         option: Got a skill in your larp called "Craftsman" or "Lore"
             or something where you fill in an arbitrary description of what
@@ -645,6 +775,7 @@ class FeatureEntry(BaseModel):
     """
 
     id: Identifier
+    type: str | None = None
     ranks: pydantic.NonNegativeInt = 1
     option: str | None = None
 
@@ -688,7 +819,7 @@ def parse_req(req: Requirements) -> BoolExpr | None:
         return NoneOf(none=[parse_req(r) for r in maybe_iter(req.none)])
     if isinstance(req, str):
         if req.startswith("!"):
-            return NoneOf(none=[PropReq.parse(req[1:])])
+            return NoneOf(none=[PropExpression.parse(req[1:])])
         else:
-            return PropReq.parse(req)
+            return PropExpression.parse(req)
     raise ValueError(f"Requirement parse failure for {req}")
