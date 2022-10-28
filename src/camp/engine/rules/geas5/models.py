@@ -1,32 +1,62 @@
 from __future__ import annotations
 
 from typing import ClassVar
+from typing import Iterable
 from typing import Literal
 from typing import Type
 from typing import TypeAlias
 
 from pydantic import Field
+from pydantic import NonNegativeInt
+from pydantic import PositiveInt
+from pydantic import PrivateAttr
 
+from camp.engine import aggregator
+from camp.engine.models import BaseAttributeDef
 from camp.engine.models import BaseCharacter
-from camp.engine.models import BaseFeatureDef
+from camp.engine.models import BaseFeatureDef as _BaseFeatureDef
 from camp.engine.models import BaseModel
 from camp.engine.models import BaseRuleset
-from camp.engine.models import FeatureEntry
+from camp.engine.models import Discount
 from camp.engine.models import Identifier
 from camp.engine.models import ModelDefinition
 from camp.engine.models import OptionDef
+from camp.engine.models import Purchase
 from camp.engine.models import RulesDecision
-from camp.engine.utils import Aggregator
+from camp.engine.models import Slot
 from camp.engine.utils import maybe_iter
 
 
-class Choice(BaseModel):
-    choices: Grantables
+class GrantsByRank(BaseModel):
+    by_rank: dict[PositiveInt, Grantables] = Field(alias="by_level")
+    ref: Identifier | None = None
+    _max_rank: int = PrivateAttr(default=0)
+    _cache: dict[PositiveInt, list[Grantable]] = PrivateAttr(default_factory=dict)
+
+    def grants(self, rank: int) -> list[Grantable]:
+        if not self._max_rank:
+            self._max_rank = max(self.__root__.keys())
+        rank = min(rank, self._max_rank)
+        if rank not in self._cache:
+            grants = []
+            for r, v in self.by_rank.items():
+                if r <= rank:
+                    for g in maybe_iter(v):
+                        grants.append(g)
+            self._cache[rank] = grants
+        return self._cache[grants]
 
 
-Grantable: TypeAlias = Identifier | Choice | dict[Identifier, int]
+Grantable: TypeAlias = (
+    Identifier | Discount | Slot | GrantsByRank | dict[Identifier, int]
+)
 Grantables: TypeAlias = list[Grantable] | Grantable | None
-Choice.update_forward_refs()
+GrantsByRank.update_forward_refs()
+
+
+class BaseFeatureDef(_BaseFeatureDef):
+    def compute_grants(self, character: Character) -> Grantables:
+        return None
 
 
 class ClassFeatureDef(BaseFeatureDef):
@@ -37,7 +67,10 @@ class ClassFeatureDef(BaseFeatureDef):
     def post_validate(self, ruleset: BaseRuleset) -> None:
         super().post_validate(ruleset)
         if self.grants:
-            ruleset.validate_identifiers(grantable_identifiers(self.grants))
+            ruleset.validate_identifiers(_grantable_identifiers(self.grants))
+
+    def compute_grants(self, character: Character) -> Grantables:
+        return self.grants
 
 
 class ClassDef(BaseFeatureDef):
@@ -51,19 +84,14 @@ class ClassDef(BaseFeatureDef):
     # By default, any number of levels can be taken in a class.
     ranks: bool | int = True
 
-    def aggregate(self, entry: FeatureEntry, agg: Aggregator) -> None:
+    def compute_grants(self, character: Character) -> Grantables:
+        # Grants for a class depend on whether this is the first class taken,
+        # or a subsequent class.
+        ...
+
+    def aggregate(self, entry: Purchase, agg: aggregator.Aggregator) -> None:
         super().aggregate(entry, agg)
         level = entry.ranks if entry.ranks is not None else 1
-
-        # Aggregate caster/martial/sphere counters
-        agg.aggregate_prop(self.sphere, level)
-        if self.sphere != "martial":
-            agg.aggregate_prop("caster", level)
-
-        # Character level aggregate. Note that the "max" aggregation
-        # is also done, so 'level$N' can test the highest level in
-        # a single class.
-        agg.aggregate_prop("level", level)
 
         # Attributes by level
         if level in self.levels:
@@ -80,60 +108,131 @@ class ClassDef(BaseFeatureDef):
                     # character has, for example, arcane prepared spells,
                     # or any prepared spells at all. So we aggregate using
                     # the class ID and the class sphere as extra options.
-                    agg.aggregate_prop(f"{attr}#{self.id}", value, do_max=False)
-                    agg.aggregate_prop(f"{attr}#{self.sphere}", value)
-                    agg.aggregate_prop(attr, value)
+                    class_attr = f"{attr}#{self.id}"
+                    sphere_attr = f"{attr}#{self.sphere}"
+                    agg.define_property(
+                        aggregator.Property(
+                            id=class_attr,
+                            type="attribute",
+                            tags={attr, sphere_attr},
+                        )
+                    )
+                    if not agg.has_property(sphere_attr):
+                        agg.define_property(
+                            aggregator.Property(
+                                id=sphere_attr,
+                                type="attribute",
+                                is_tag=True,
+                            )
+                        )
+                    agg.apply_mod(class_attr, value)
                 case "power_slots":
                     # These are local attributes whose value is specified as a list.
                     # Each value is for a different tier of power slots, so we use the
                     # attr@N "tier" syntax to seperately aggregate each tier's value.
                     # Like other locals, we also add aggregations for the class ID and
                     # the sphere type.
+                    if not agg.has_property(attr):
+                        agg.define_property(
+                            aggregator.Property(
+                                id=attr,
+                                type="attribute",
+                                is_tag=True,
+                            )
+                        )
                     for i, slot_value in enumerate(value):
                         tier_id = f"{attr}@{i+1}"
-                        agg.aggregate_prop(
-                            f"{tier_id}#{self.id}", slot_value, do_max=False
+                        class_tier = f"{tier_id}#{self.id}"
+                        sphere_tier = f"{tier_id}#{self.sphere}"
+                        agg.define_property(
+                            aggregator.Property(
+                                id=class_tier,
+                                type="attribute",
+                                tags={attr, tier_id, sphere_tier},
+                            )
                         )
-                        agg.aggregate_prop(
-                            f"{tier_id}#{self.sphere}", slot_value, do_max=False
-                        )
-                        agg.aggregate_prop(tier_id, slot_value)
-                        agg.aggregate_prop(attr, slot_value)
+                        if not agg.has_property(tier_id):
+                            agg.define_property(
+                                aggregator.Property(
+                                    id=tier_id,
+                                    type="attribute",
+                                    is_tag=True,
+                                )
+                            )
+                        if not agg.has_property(sphere_tier):
+                            agg.define_property(
+                                aggregator.Property(
+                                    id=sphere_tier,
+                                    type="attribute",
+                                    is_tag=True,
+                                )
+                            )
+                        agg.apply_mod(class_tier, slot_value)
                 case _:
                     # Basic attributes, currencies, etc.
-                    agg.aggregate_prop(attr, value, do_max=False)
+                    agg.apply_mod(attr, value)
 
     def post_validate(self, ruleset: BaseRuleset) -> None:
         super().post_validate(ruleset)
         if self.starting_features:
-            ruleset.validate_identifiers(grantable_identifiers(self.starting_features))
+            ruleset.validate_identifiers(_grantable_identifiers(self.starting_features))
         if self.multiclass_features:
             ruleset.validate_identifiers(
-                grantable_identifiers(self.multiclass_features)
+                _grantable_identifiers(self.multiclass_features)
             )
         if self.bonus_features:
             ruleset.validate_identifiers(
-                grantable_identifiers(list(self.bonus_features.values()))
+                _grantable_identifiers(list(self.bonus_features.values()))
             )
+        self.tags |= {self.sphere, "level"}
+        if self.sphere != "martial":
+            self.tags.add("caster")
+
+
+class CostByValue(BaseModel):
+    """For when the cost of something depends on something.
+
+    Attributes:
+        prop: What property does it depend on? Common cases:
+            None: The rank of this thing. Use when the cost
+                of a thing depends on how many of it you have.
+            'level': The level of the character when you purchased
+                the thing.
+        value: Map of rank/level/whatevers to costs. Any value that
+            isn't map assumes the next lowest cost. For example:
+                1: 1
+                5: 3
+                10: 5
+            means: Ranks from 1-4 cost 1 point. Ranks from 5-9 cost 3.
+                Ranks 10+ cost 5.
+        locked: The cost depends on the value at the time when the
+            purchase is made. It does not fluctuate as the character
+            levels up or whatever. This will cause the locked value to
+            be recorded with the purchase.
+    """
+
+    prop: str | None = None
+    value: dict[int, int]
+    locked: bool = True
 
 
 class SkillDef(BaseFeatureDef):
     type: Literal["skill"] = "skill"
     category: str = "General"
-    cost: int
+    cost: int | CostByValue
     uses: int | None = None
     option: OptionDef | None = None
     grants: Grantables = None
 
     def post_validate(self, ruleset: BaseRuleset) -> None:
         super().post_validate(ruleset)
-        ruleset.validate_identifiers(grantable_identifiers(self.grants))
+        ruleset.validate_identifiers(_grantable_identifiers(self.grants))
 
 
 class PowerDef(BaseFeatureDef):
     type: Literal["power"] = "power"
     sphere: Literal["arcane", "divine", "martial", None] = None
-    tier: Literal[0, 1, 2, 3, 4] = 0
+    tier: NonNegativeInt | None = None
     class_: str | None = Field(alias="class", default=None)
     incant_prefix: str | None = None
     incant: str | None = None
@@ -149,16 +248,16 @@ class PowerDef(BaseFeatureDef):
     def post_validate(self, ruleset: BaseRuleset) -> None:
         super().post_validate(ruleset)
         ruleset.validate_identifiers(self.class_)
-        ruleset.validate_identifiers(grantable_identifiers(self.grants))
+        ruleset.validate_identifiers(_grantable_identifiers(self.grants))
 
 
 FeatureDefinitions: TypeAlias = ClassDef | ClassFeatureDef | SkillDef | PowerDef
 
 
 class Character(BaseCharacter):
-    def can_add_feature(self, entry: FeatureEntry | str) -> RulesDecision:
+    def can_purchase(self, entry: Purchase | str) -> RulesDecision:
         if isinstance(entry, str):
-            entry = FeatureEntry(id=entry)
+            entry = Purchase(id=entry)
 
         ruleset = self._ruleset
         if entry.id not in ruleset.features:
@@ -228,6 +327,18 @@ class Character(BaseCharacter):
 
         return RulesDecision(success=True)
 
+    def purchase(self, entry: Purchase | str) -> RulesDecision:
+        if isinstance(entry, str):
+            entry = Purchase(id=entry)
+
+        if not (rd := super().purchase(entry)):
+            return rd
+
+        # Check if this results in any new feature grants.
+        # feature = self._ruleset.features[entry.id]
+
+        return rd
+
 
 class Ruleset(BaseRuleset):
     features: dict[Identifier, FeatureDefinitions] = Field(default_factory=dict)
@@ -236,21 +347,68 @@ class Ruleset(BaseRuleset):
     flaw_overcome: int = 2
     xp_table: dict[int, int]
     lp_table: dict[int, int]
+    attributes: ClassVar[Iterable[BaseAttributeDef]] = [
+        BaseAttributeDef(
+            id="xp", name="Experience Points", abbrev="XP", default_value=0
+        ),
+        BaseAttributeDef(
+            id="xp_level", name="Experience Level", hidden=True, default_value=2
+        ),
+        BaseAttributeDef(id="level", name="Character Level", is_tag=True),
+        BaseAttributeDef(id="lp", name="Life Points", abbrev="LP", default_value=2),
+        BaseAttributeDef(
+            id="cp", name="Character Points", abbrev="CP", default_value=0
+        ),
+        BaseAttributeDef(
+            id="breedcap", name="Max Breeds", default_value=2, hidden=True
+        ),
+        BaseAttributeDef(id="bp", name="Breed Points", scoped=True, default_value=0),
+        BaseAttributeDef(id="spikes", name="Spikes", default_value=0),
+        BaseAttributeDef(id="utilities", name="Utilities", scoped=True),
+        BaseAttributeDef(id="cantrips", name="Cantrips", scoped=True),
+        BaseAttributeDef(
+            id="spells",
+            name="Spells",
+            scoped=True,
+            tiered=True,
+            tier_names=["Novice", "Intermediate", "Greater", "Master"],
+        ),
+        BaseAttributeDef(
+            id="powers",
+            name="Powers",
+            scoped=True,
+            tiered=True,
+            tier_names=["Basic", "Advanced", "Veteran", "Champion"],
+        ),
+        BaseAttributeDef(
+            id="arcane",
+            name="Arcane Caster Levels",
+            is_tag=True,
+            hidden=True,
+        ),
+        BaseAttributeDef(
+            id="divine",
+            name="Divine Caster Levels",
+            is_tag=True,
+            hidden=True,
+        ),
+        BaseAttributeDef(
+            id="martial",
+            name="Martial Class Levels",
+            is_tag=True,
+            hidden=True,
+        ),
+        BaseAttributeDef(
+            id="caster",
+            name="Caster Levels",
+            is_tag=True,
+            hidden=True,
+        ),
+    ]
+    # Attribute-like values that are probably only used internally.
+    # Promote them to attributes if players might need to see them.
     builtin_identifiers: ClassVar[set[Identifier]] = {
-        "xp",
-        "lp",
-        "cp",
-        "breedcap",
         "armor",
-        "arcane",
-        "divine",
-        "martial",
-        "caster",
-        "level",
-        "spells",
-        "powers",
-        "utilities",
-        "cantrips",
     }
 
     def feature_model_types(self) -> ModelDefinition:
@@ -261,14 +419,22 @@ class Ruleset(BaseRuleset):
         return Character
 
 
-def grantable_identifiers(grantables: Grantables) -> set[Identifier]:
+def _grantable_identifiers(grantables: Grantables) -> set[Identifier]:
     id_set = set()
     for g in maybe_iter(grantables):
-        match g:
-            case Choice():
-                id_set.update(grantable_identifiers(g.choices))
+        match g:  # type: ignore
+            case Discount():  # type: ignore
+                id_set.update(_grantable_identifiers(g.id))
+            case Slot():  # type: ignore
+                id_set.update(_grantable_identifiers(g.discount))
+                id_set.update(_grantable_identifiers(g.choices))
+                id_set.update(_grantable_identifiers(g.feature_type))
+            case GrantsByRank():
+                if g.ref:
+                    id_set.update(g.ref)
+                id_set.update(_grantable_identifiers(list(g.by_rank.values())))
             case list():
-                id_set.update(grantable_identifiers(g))
+                id_set.update(_grantable_identifiers(g))
             case dict():
                 id_set.update(list(g.keys()))
             case str():

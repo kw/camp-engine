@@ -3,7 +3,7 @@ import pathlib
 import pytest
 
 from camp.engine import loader
-from camp.engine.models import FeatureEntry
+from camp.engine.models import Purchase
 from camp.engine.rules.geas5.models import Character
 from camp.engine.rules.geas5.models import Ruleset
 
@@ -22,9 +22,9 @@ def character(ruleset: Ruleset) -> Character:
 
 
 def test_fighter(character: Character):
-    entry = FeatureEntry(id="fighter", ranks=2)
-    assert character.can_add_feature(entry)
-    assert character.add_feature(entry)
+    entry = Purchase(id="fighter", ranks=2)
+    assert character.can_purchase(entry)
+    assert character.purchase(entry)
     assert character.meets_requirements("fighter:2")
     assert character.meets_requirements("martial")
     assert character.meets_requirements("martial:2")
@@ -36,9 +36,9 @@ def test_fighter(character: Character):
 
 
 def test_wizard(character: Character):
-    entry = FeatureEntry(id="wizard", ranks=2)
-    assert character.can_add_feature(entry)
-    assert character.add_feature(entry)
+    entry = Purchase(id="wizard", ranks=2)
+    assert character.can_purchase(entry)
+    assert character.purchase(entry)
     assert character.meets_requirements("wizard:2")
     assert not character.meets_requirements("martial")
     assert not character.meets_requirements("martial:2")
@@ -50,9 +50,9 @@ def test_wizard(character: Character):
 
 
 def test_druid(character: Character):
-    entry = FeatureEntry(id="druid", ranks=2)
-    assert character.can_add_feature(entry)
-    assert character.add_feature(entry)
+    entry = Purchase(id="druid", ranks=2)
+    assert character.can_purchase(entry)
+    assert character.purchase(entry)
     assert character.meets_requirements("druid:2")
     assert not character.meets_requirements("martial")
     assert not character.meets_requirements("martial:2")
@@ -64,9 +64,9 @@ def test_druid(character: Character):
 
 
 def test_multiclass(character: Character):
-    assert character.add_feature(FeatureEntry(id="fighter", ranks=3))
-    assert character.add_feature(FeatureEntry(id="wizard", ranks=5))
-    assert character.add_feature(FeatureEntry(id="druid", ranks=7))
+    assert character.purchase(Purchase(id="fighter", ranks=3))
+    assert character.purchase(Purchase(id="wizard", ranks=5))
+    assert character.purchase(Purchase(id="druid", ranks=7))
     assert character.meets_requirements("martial:3")
     assert character.meets_requirements("martial$3")
     assert not character.meets_requirements("martial$4")
@@ -97,7 +97,7 @@ def test_multiclass(character: Character):
 
 
 def test_spell_slots(character: Character):
-    character.add_feature(FeatureEntry(id="wizard", ranks=7))
+    character.purchase(Purchase(id="wizard", ranks=7))
     assert character.meets_requirements("spells:7")
     assert character.meets_requirements("spells@1:6")
     assert character.meets_requirements("spells@2:1")

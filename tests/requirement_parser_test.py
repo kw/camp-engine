@@ -3,7 +3,7 @@ import pytest
 from camp.engine.models import AllOf
 from camp.engine.models import AnyOf
 from camp.engine.models import NoneOf
-from camp.engine.models import PropReq
+from camp.engine.models import PropExpression
 from camp.engine.models import parse_req
 
 
@@ -27,13 +27,13 @@ def test_parse_propreq(req):
     In other words, each of the listed strings should parse successfully
     and serialize back to the original string.
     """
-    assert (p := PropReq.parse(req))
+    assert (p := PropExpression.parse(req))
     assert repr(p) == req
 
 
 def test_prarse_propreq_values():
     """Test that, when parsed, the PropReq has the expected values."""
-    p = PropReq.parse("feature-id@1#My_Option:23$34<450")
+    p = PropExpression.parse("feature-id@1#My_Option:23$34<450")
     assert p.prop == "feature-id"
     assert p.tier == 1
     assert p.option == "My Option"
@@ -69,25 +69,25 @@ def test_parse_req():
     parsed = parse_req(req)
     assert parsed == AllOf(
         all=[
-            PropReq(prop="feature-id", option="Text"),
+            PropExpression(prop="feature-id", option="Text"),
             AllOf(
                 all=[
-                    PropReq(prop="one"),
-                    PropReq(prop="two"),
-                    NoneOf(none=[PropReq(prop="three")]),
+                    PropExpression(prop="one"),
+                    PropExpression(prop="two"),
+                    NoneOf(none=[PropExpression(prop="three")]),
                 ]
             ),
             AnyOf(
                 any=[
-                    PropReq(prop="four", minimum=4),
-                    PropReq(prop="five", single=5),
-                    AllOf(all=[PropReq(prop="six", tier=6)]),
+                    PropExpression(prop="four", minimum=4),
+                    PropExpression(prop="five", single=5),
+                    AllOf(all=[PropExpression(prop="six", tier=6)]),
                 ]
             ),
             NoneOf(
                 none=[
-                    PropReq(prop="seven", option="?"),
-                    PropReq(prop="eight", less_than=8),
+                    PropExpression(prop="seven", option="?"),
+                    PropExpression(prop="eight", less_than=8),
                 ]
             ),
         ]

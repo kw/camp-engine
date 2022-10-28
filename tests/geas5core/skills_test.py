@@ -3,7 +3,7 @@ import pathlib
 import pytest
 
 from camp.engine import loader
-from camp.engine.models import FeatureEntry
+from camp.engine.models import Purchase
 from camp.engine.models import RulesDecision
 from camp.engine.rules.geas5.models import Character
 from camp.engine.rules.geas5.models import Ruleset
@@ -23,59 +23,59 @@ def character(ruleset: Ruleset) -> Character:
 
 
 def test_add_basic_skill(character: Character):
-    assert character.can_add_feature("basic-skill")
-    assert character.add_feature("basic-skill")
+    assert character.can_purchase("basic-skill")
+    assert character.purchase("basic-skill")
 
 
 def test_add_basic_feature_twice(character: Character):
-    character.add_feature("basic-skill")
-    assert not character.can_add_feature("basic-skill")
-    assert not character.add_feature("basic-skill")
+    character.purchase("basic-skill")
+    assert not character.can_purchase("basic-skill")
+    assert not character.purchase("basic-skill")
 
 
 def test_one_requirement_missing(character: Character):
-    assert not character.can_add_feature("one-requirement")
-    assert not character.add_feature("one-requirement")
+    assert not character.can_purchase("one-requirement")
+    assert not character.purchase("one-requirement")
 
 
 def test_two_requirements_missing(character: Character):
-    assert not character.can_add_feature("two-requirements")
-    assert not character.add_feature("two-requirements")
+    assert not character.can_purchase("two-requirements")
+    assert not character.purchase("two-requirements")
 
 
 def test_two_requirements_met(character: Character):
-    assert character.add_feature("basic-skill")
-    assert character.add_feature("one-requirement")
-    assert not character.can_add_feature("two-requirements")
-    assert character.add_feature("granted-skill")
-    assert character.add_feature("two-requirements")
+    assert character.purchase("basic-skill")
+    assert character.purchase("one-requirement")
+    assert not character.can_purchase("two-requirements")
+    assert character.purchase("granted-skill")
+    assert character.purchase("two-requirements")
 
 
 def test_one_requirement_met(character: Character):
-    character.add_feature("basic-skill")
-    assert character.can_add_feature("one-requirement")
-    assert character.add_feature("one-requirement")
+    character.purchase("basic-skill")
+    assert character.can_purchase("one-requirement")
+    assert character.purchase("one-requirement")
 
 
 def test_erroneous_option_provided(character: Character):
     """Skill can't be added with an option if it does not define options."""
-    entry = FeatureEntry(id="basic-skill", option="Foo")
-    assert not character.can_add_feature(entry)
-    assert not character.add_feature(entry)
+    entry = Purchase(id="basic-skill", option="Foo")
+    assert not character.can_purchase(entry)
+    assert not character.purchase(entry)
 
 
 def test_option_values_required_freeform_prohibited(character: Character):
     """If a skill option requires values, the option must be in that list."""
-    entry = FeatureEntry(id="specific-options", option="Fifty Two")
-    assert not character.can_add_feature(entry)
-    assert not character.add_feature(entry)
+    entry = Purchase(id="specific-options", option="Fifty Two")
+    assert not character.can_purchase(entry)
+    assert not character.purchase(entry)
 
 
 def test_option_values_provided(character: Character):
     """If a skill option requires values, an option from that list works."""
-    entry = FeatureEntry(id="specific-options", option="Two")
-    assert character.can_add_feature(entry)
-    assert character.add_feature(entry)
+    entry = Purchase(id="specific-options", option="Two")
+    assert character.can_purchase(entry)
+    assert character.purchase(entry)
 
 
 def test_option_single_allowed(character: Character):
@@ -83,13 +83,11 @@ def test_option_single_allowed(character: Character):
 
     Only accept a single skill entry for it.
     """
-    entry = FeatureEntry(id="single-option", option="Rock")
-    assert character.can_add_feature(entry)
-    assert character.add_feature(entry)
-    assert not character.can_add_feature("single-option")
-    assert not character.can_add_feature(
-        FeatureEntry(id="single-option", option="Paper")
-    )
+    entry = Purchase(id="single-option", option="Rock")
+    assert character.can_purchase(entry)
+    assert character.purchase(entry)
+    assert not character.can_purchase("single-option")
+    assert not character.can_purchase(Purchase(id="single-option", option="Paper"))
 
 
 def test_option_values_flag(character: Character):
@@ -97,9 +95,9 @@ def test_option_values_flag(character: Character):
     can be passed in via that metadata flag.
     """
     character.metadata.flags["More Specific Options"] = ["Four", "Five", "Six"]
-    entry = FeatureEntry(id="specific-options", option="Five")
-    assert character.can_add_feature(entry)
-    assert character.add_feature(entry)
+    entry = Purchase(id="specific-options", option="Five")
+    assert character.can_purchase(entry)
+    assert character.purchase(entry)
 
 
 def test_multiple_option_skill_without_option(character: Character):
@@ -113,12 +111,12 @@ def test_multiple_option_skill_without_option(character: Character):
     """
     fid = "specific-options"
     success_but_needs_option = RulesDecision(success=True, needs_option=True)
-    assert character.can_add_feature(fid) == success_but_needs_option
-    assert not character.add_feature(fid)
-    character.add_feature(FeatureEntry(id=fid, option="One"))
-    character.add_feature(FeatureEntry(id=fid, option="Two"))
-    assert character.can_add_feature(fid) == success_but_needs_option
-    assert character.add_feature(FeatureEntry(id=fid, option="Three"))
-    assert not character.can_add_feature(fid)
+    assert character.can_purchase(fid) == success_but_needs_option
+    assert not character.purchase(fid)
+    character.purchase(Purchase(id=fid, option="One"))
+    character.purchase(Purchase(id=fid, option="Two"))
+    assert character.can_purchase(fid) == success_but_needs_option
+    assert character.purchase(Purchase(id=fid, option="Three"))
+    assert not character.can_purchase(fid)
     options = {e.option for e in character.features.get(fid, [])}
     assert options == {"One", "Two", "Three"}
