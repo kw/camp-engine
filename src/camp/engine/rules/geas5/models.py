@@ -11,7 +11,6 @@ from pydantic import NonNegativeInt
 from pydantic import PositiveInt
 from pydantic import PrivateAttr
 
-from camp.engine import aggregator
 from camp.engine.models import BaseAttributeDef
 from camp.engine.models import BaseCharacter
 from camp.engine.models import BaseFeatureDef as _BaseFeatureDef
@@ -25,6 +24,8 @@ from camp.engine.models import Purchase
 from camp.engine.models import RulesDecision
 from camp.engine.models import Slot
 from camp.engine.utils import maybe_iter
+
+from . import aggregator
 
 
 class GrantsByRank(BaseModel):
@@ -57,6 +58,44 @@ GrantsByRank.update_forward_refs()
 class BaseFeatureDef(_BaseFeatureDef):
     def compute_grants(self, character: Character) -> Grantables:
         return None
+
+    def aggregate(self, entry: Purchase, agg: aggregator.Aggregator) -> None:
+        ranks = entry.ranks if entry.ranks is not None else 1
+        if entry.option:
+            # Add property on-demand.
+            if not agg.has_prop(entry.option_id):
+                agg.define_property(
+                    aggregator.Property(
+                        id=entry.option_id,
+                        type="feature",
+                        tags=self.tags | {self.id},
+                    )
+                )
+            agg.apply_mod(entry.option_id, ranks)
+        else:
+            agg.apply_mod(entry.id, ranks)
+
+    def define_property(self, agg: aggregator.Aggregator):
+        if not agg.has_prop(self.id):
+            if self.option is None:
+                # This is a normal feature property.
+                agg.define_property(
+                    aggregator.Property(
+                        id=self.id,
+                        type="feature",
+                        tags=self.tags,
+                    )
+                )
+            else:
+                # We'll define properties for the options on-demand.
+                # Create a tag property for the base feature.
+                agg.define_property(
+                    aggregator.Property(
+                        id=self.id,
+                        type="feature",
+                        is_tag=True,
+                    )
+                )
 
 
 class ClassFeatureDef(BaseFeatureDef):
@@ -117,7 +156,7 @@ class ClassDef(BaseFeatureDef):
                             tags={attr, sphere_attr},
                         )
                     )
-                    if not agg.has_property(sphere_attr):
+                    if not agg.has_prop(sphere_attr):
                         agg.define_property(
                             aggregator.Property(
                                 id=sphere_attr,
@@ -132,7 +171,7 @@ class ClassDef(BaseFeatureDef):
                     # attr@N "tier" syntax to seperately aggregate each tier's value.
                     # Like other locals, we also add aggregations for the class ID and
                     # the sphere type.
-                    if not agg.has_property(attr):
+                    if not agg.has_prop(attr):
                         agg.define_property(
                             aggregator.Property(
                                 id=attr,
@@ -151,7 +190,7 @@ class ClassDef(BaseFeatureDef):
                                 tags={attr, tier_id, sphere_tier},
                             )
                         )
-                        if not agg.has_property(tier_id):
+                        if not agg.has_prop(tier_id):
                             agg.define_property(
                                 aggregator.Property(
                                     id=tier_id,
@@ -159,7 +198,7 @@ class ClassDef(BaseFeatureDef):
                                     is_tag=True,
                                 )
                             )
-                        if not agg.has_property(sphere_tier):
+                        if not agg.has_prop(sphere_tier):
                             agg.define_property(
                                 aggregator.Property(
                                     id=sphere_tier,
@@ -255,6 +294,11 @@ FeatureDefinitions: TypeAlias = ClassDef | ClassFeatureDef | SkillDef | PowerDef
 
 
 class Character(BaseCharacter):
+    _aggregate: aggregator.Aggregator = PrivateAttr(
+        default_factory=aggregator.Aggregator
+    )
+    _aggregate_dirty: bool = PrivateAttr(default=True)
+
     def can_purchase(self, entry: Purchase | str) -> RulesDecision:
         if isinstance(entry, str):
             entry = Purchase(id=entry)
@@ -336,8 +380,47 @@ class Character(BaseCharacter):
 
         # Check if this results in any new feature grants.
         # feature = self._ruleset.features[entry.id]
-
+        self._aggregate_dirty = True
         return rd
+
+    def get_prop(self, id: str) -> int:
+        return self._get_aggregator().get_prop(id)
+
+    def get_prop_max(self, id: str) -> int:
+        return self._get_aggregator().get_prop_max(id)
+
+    def has_prop(self, id: str) -> bool:
+        return self._get_aggregator().has_prop(id)
+
+    def _get_aggregator(self) -> aggregator.Aggregator:
+        if not self._aggregate_dirty:
+            return self._aggregate
+        agg = self._make_aggregator()
+        for entry in self.purchases:
+            if feature_def := self._ruleset.features.get(entry.id):
+                feature_def.aggregate(entry, agg)
+        self._aggregate_dirty = False
+        self._aggregate = agg
+        return self._aggregate
+
+    def _make_aggregator(self) -> aggregator.Aggregator:
+        agg = aggregator.Aggregator()
+        for feature in self._ruleset.features.values():
+            feature.define_property(agg)
+        for attribute in self._ruleset.attributes:
+            # TODO: Handle scoped somehow?
+            if not attribute.scoped:
+                agg.define_property(
+                    aggregator.Property(
+                        id=attribute.id,
+                        type="attribute",
+                        base=attribute.default_value or 0,
+                        min_value=attribute.min_value,
+                        max_value=attribute.max_value,
+                        is_tag=attribute.is_tag,
+                    )
+                )
+        return agg
 
 
 class Ruleset(BaseRuleset):
