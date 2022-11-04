@@ -16,7 +16,6 @@ from uuid import uuid4
 import pydantic
 from packaging import version
 
-from . import aggregator
 from . import utils
 from .utils import maybe_iter
 
@@ -42,7 +41,7 @@ class BaseModel(pydantic.BaseModel):
 
 class BoolExpr(BaseModel, ABC):
     @abstractmethod
-    def evaluate(self, agg: aggregator.Aggregator) -> bool:
+    def evaluate(self, char: BaseCharacter) -> bool:
         ...
 
     def identifiers(self) -> set[Identifier]:
@@ -61,14 +60,14 @@ OptionValue: TypeAlias = str
 class AnyOf(BoolExpr):
     any: Requirements
 
-    def evaluate(self, agg: aggregator.Aggregator) -> bool:
+    def evaluate(self, char: BaseCharacter) -> bool:
         # TODO: This could have been a pretty simple generator expression,
         # but mypy isn't as good as pylance at recognizing when types have
         # been constrained. Maybe do something about it, maybe stop using mypy.
         for expr in maybe_iter(self.any):
             if isinstance(expr, str):
                 raise TypeError(f"Expression '{expr}' expected to be parsed by now.")
-            if expr.evaluate(agg):
+            if expr.evaluate(char):
                 return True
         return False
 
@@ -85,11 +84,11 @@ class AnyOf(BoolExpr):
 class AllOf(BoolExpr):
     all: Requirements
 
-    def evaluate(self, agg: aggregator.Aggregator) -> bool:
+    def evaluate(self, char: BaseCharacter) -> bool:
         for expr in maybe_iter(self.all):
             if isinstance(expr, str):
                 raise TypeError(f"Expression '{expr}' expected to be parsed by now.")
-            if not expr.evaluate(agg):
+            if not expr.evaluate(char):
                 return False
         return True
 
@@ -106,11 +105,11 @@ class AllOf(BoolExpr):
 class NoneOf(BoolExpr):
     none: Requirements
 
-    def evaluate(self, agg: aggregator.Aggregator) -> bool:
+    def evaluate(self, char: BaseCharacter) -> bool:
         for expr in maybe_iter(self.none):
             if isinstance(expr, str):
                 raise TypeError(f"Expression '{expr}' expected to be parsed by now.")
-            if expr.evaluate(agg):
+            if expr.evaluate(char):
                 return False
         return True
 
@@ -154,15 +153,15 @@ class PropExpression(BoolExpr):
     single: int | None = None
     less_than: int | None = None
 
-    def evaluate(self, agg: aggregator.Aggregator) -> bool:
+    def evaluate(self, char: BaseCharacter) -> bool:
         id = self.prop
         if self.tier is not None:
             id = f"{id}@{self.tier}"
         if self.option is not None:
             id = f"{id}#{self.option.replace(' ', '_')}"
-        if not agg.has_property(id):
+        if not char.has_prop(id):
             return False
-        ranks = agg.get_prop(id)
+        ranks = char.get_prop(id)
         if self.minimum is not None:
             if ranks < self.minimum:
                 return False
@@ -170,7 +169,7 @@ class PropExpression(BoolExpr):
             if ranks >= self.less_than:
                 return False
         elif self.single is not None:
-            max_ranks = agg.get_prop_max(id)
+            max_ranks = char.get_prop_max(id)
             if max_ranks < self.single:
                 return False
         else:
@@ -254,44 +253,6 @@ class BaseFeatureDef(BaseModel):
         self.requires = parse_req(self.requires)
         if self.requires:
             ruleset.validate_identifiers(list(self.requires.identifiers()))
-
-    def aggregate(self, entry: Purchase, agg: aggregator.Aggregator) -> None:
-        ranks = entry.ranks if entry.ranks is not None else 1
-        if entry.option:
-            # Add property on-demand.
-            if not agg.has_property(entry.option_id):
-                agg.define_property(
-                    aggregator.Property(
-                        id=entry.option_id,
-                        type="feature",
-                        tags=self.tags | {self.id},
-                    )
-                )
-            agg.apply_mod(entry.option_id, ranks)
-        else:
-            agg.apply_mod(entry.id, ranks)
-
-    def define_property(self, agg: aggregator.Aggregator):
-        if not agg.has_property(self.id):
-            if self.option is None:
-                # This is a normal feature property.
-                agg.define_property(
-                    aggregator.Property(
-                        id=self.id,
-                        type="feature",
-                        tags=self.tags,
-                    )
-                )
-            else:
-                # We'll define properties for the options on-demand.
-                # Create a tag property for the base feature.
-                agg.define_property(
-                    aggregator.Property(
-                        id=self.id,
-                        type="feature",
-                        is_tag=True,
-                    )
-                )
 
 
 class BadDefinition(BaseModel):
@@ -453,25 +414,6 @@ class BaseRuleset(BaseModel, ABC):
                         f'Required identifier "{id}" not found in ruleset.'
                     )
 
-    def aggregator(self) -> aggregator.Aggregator:
-        agg = aggregator.Aggregator()
-        for feature in self.features.values():
-            feature.define_property(agg)
-        for attribute in self.attributes:
-            # TODO: Handle scoped somehow?
-            if not attribute.scoped:
-                agg.define_property(
-                    aggregator.Property(
-                        id=attribute.id,
-                        type="attribute",
-                        base=attribute.default_value or 0,
-                        min_value=attribute.min_value,
-                        max_value=attribute.max_value,
-                        is_tag=attribute.is_tag,
-                    )
-                )
-        return agg
-
 
 class CharacterMetadata(BaseModel):
     """Overarching character data.
@@ -534,10 +476,6 @@ class BaseCharacter(BaseModel, ABC):
 
     metadata: CharacterMetadata = pydantic.Field(default_factory=CharacterMetadata)
     _ruleset: BaseRuleset | None = pydantic.PrivateAttr(default=None)
-    _aggregate: aggregator.Aggregator = pydantic.PrivateAttr(
-        default_factory=aggregator.Aggregator
-    )
-    _aggregate_dirty: bool = pydantic.PrivateAttr(default=True)
 
     def can_purchase(self, entry: Purchase | str) -> RulesDecision:
         return RulesDecision(success=False, reason="Not implemented")
@@ -559,7 +497,6 @@ class BaseCharacter(BaseModel, ABC):
         elif rd:
             entries = self.features.setdefault(entry.id, [])
             entries.append(entry)
-            self._aggregate_dirty = True
         return rd
 
     def attributes(self) -> list[AttributeEntry]:
@@ -569,20 +506,19 @@ class BaseCharacter(BaseModel, ABC):
         return []
 
     @property
-    def feature_entries(self) -> Iterable[Purchase]:
+    def purchases(self) -> Iterable[Purchase]:
         for entries in self.features.values():
             yield from entries
 
     def meets_requirements(self, requirements: Requirements) -> RulesDecision:
         meets_all = True
         messages: list[str] = []
-        agg = self.aggregate()
         for req in utils.maybe_iter(requirements):
             if isinstance(req, str):
                 # It's unlikely that an unparsed string gets here, but if so,
                 # go ahead and parse it.
                 req = PropExpression.parse(req)
-            if not req.evaluate(agg):
+            if not req.evaluate(self):
                 # TODO: Extract failure messages
                 meets_all = False
         if not meets_all:
@@ -591,16 +527,14 @@ class BaseCharacter(BaseModel, ABC):
             success=meets_all, reason="\n".join(messages) if messages else None
         )
 
-    def aggregate(self):
-        if not self._aggregate_dirty:
-            return self._aggregate
-        agg = self._ruleset.aggregator()
-        for entry in self.feature_entries:
-            if feature_def := self._ruleset.features.get(entry.id):
-                feature_def.aggregate(entry, agg)
-        self._aggregate_dirty = False
-        self._aggregate = agg
-        return self._aggregate
+    def get_prop(self, id) -> int:
+        return 0
+
+    def get_prop_max(self, id) -> int:
+        return 0
+
+    def has_prop(self, id) -> bool:
+        return False
 
     def options_values_for_feature(
         self, feature_id: Identifier, exclude_taken: bool = False

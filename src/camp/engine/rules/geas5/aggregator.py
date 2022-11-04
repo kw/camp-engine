@@ -195,11 +195,8 @@ class Aggregator:
     def __init__(self):
         self._props = dict()
 
-    def has_property(self, prop: str) -> bool:
-        return prop in self._props
-
     def define_property(self, prop: Property) -> None:
-        if self.has_property(prop.id):
+        if self.has_prop(prop.id):
             raise ValueError(f"Property {prop.id} already defined")
         prop._aggregator = self
         self._props[prop.id] = prop
@@ -214,3 +211,6 @@ class Aggregator:
 
     def get_prop_max(self, prop: str) -> int:
         return self._props[prop].evaluate_max()
+
+    def has_prop(self, prop: str) -> bool:
+        return prop in self._props
