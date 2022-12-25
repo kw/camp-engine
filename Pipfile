@@ -10,6 +10,3 @@ pytest = "~=7.1"
 
 [packages]
 pydantic = "~=1.10"
-
-[requires]
-python_version = "3.11.0"
