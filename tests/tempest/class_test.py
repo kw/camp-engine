@@ -1,27 +1,29 @@
+from __future__ import annotations
+
 import pathlib
 
 import pytest
 
 from camp.engine import loader
-from camp.engine.models import Purchase
-from camp.engine.rules.geas5.models import Character
-from camp.engine.rules.geas5.models import Ruleset
+from camp.engine.rules.base_engine import CharacterController
+from camp.engine.rules.base_engine import Engine
+from camp.engine.rules.base_models import Purchase
 
 EXAMPLES = pathlib.Path(__file__).parent.parent.parent / "examples"
 GEASTEST = EXAMPLES / "geastest"
 
 
 @pytest.fixture
-def ruleset() -> Ruleset:
-    return loader.load_ruleset(GEASTEST)
+def engine() -> Engine:
+    return loader.load_ruleset(GEASTEST).engine
 
 
 @pytest.fixture
-def character(ruleset: Ruleset) -> Character:
-    return ruleset.new_character()
+def character(engine: Engine) -> CharacterController:
+    return engine.new_character()
 
 
-def test_fighter(character: Character):
+def test_fighter(character: CharacterController):
     entry = Purchase(id="fighter", ranks=2)
     assert character.can_purchase(entry)
     assert character.purchase(entry)
@@ -35,7 +37,7 @@ def test_fighter(character: Character):
     assert not character.meets_requirements("divine:2")
 
 
-def test_wizard(character: Character):
+def test_wizard(character: CharacterController):
     entry = Purchase(id="wizard", ranks=2)
     assert character.can_purchase(entry)
     assert character.purchase(entry)
@@ -49,7 +51,7 @@ def test_wizard(character: Character):
     assert not character.meets_requirements("divine:2")
 
 
-def test_druid(character: Character):
+def test_druid(character: CharacterController):
     entry = Purchase(id="druid", ranks=2)
     assert character.can_purchase(entry)
     assert character.purchase(entry)
@@ -63,7 +65,8 @@ def test_druid(character: Character):
     assert character.meets_requirements("divine:2")
 
 
-def test_multiclass(character: Character):
+def test_multiclass(character: CharacterController):
+    character.model.metadata.currencies["xp"] = 153  # XP required to be level 15
     assert character.purchase(Purchase(id="fighter", ranks=3))
     assert character.purchase(Purchase(id="wizard", ranks=5))
     assert character.purchase(Purchase(id="druid", ranks=7))
@@ -96,7 +99,8 @@ def test_multiclass(character: Character):
     assert character.meets_requirements("level<16")
 
 
-def test_spell_slots(character: Character):
+@pytest.mark.xfail(reason="Not yet implemented")
+def test_spell_slots(character: CharacterController):
     character.purchase(Purchase(id="wizard", ranks=7))
     assert character.meets_requirements("spells:7")
     assert character.meets_requirements("spells@1:6")

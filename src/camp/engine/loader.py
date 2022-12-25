@@ -10,17 +10,17 @@ import pydantic
 import tomllib
 import yaml
 
-from . import models
 from . import utils
+from .rules import base_models
 
 Models: typing.TypeAlias = typing.Iterable[pydantic.BaseModel]
-FeatureTypeMap: typing.TypeAlias = dict[str, typing.Type[models.BaseFeatureDef]]
+FeatureTypeMap: typing.TypeAlias = dict[str, typing.Type[base_models.BaseFeatureDef]]
 PathLike: typing.TypeAlias = pathlib.Path | zipfile.Path
 
 
 def load_ruleset(
     path: str | PathLike, with_bad_defs: bool = True
-) -> models.BaseRuleset:
+) -> base_models.BaseRuleset:
     """Load the specified ruleset from disk by path.
 
     The ruleset path must be a directory containg file named
@@ -57,18 +57,16 @@ def load_ruleset(
         )
     feature_types = _feature_model_map(feature_defs)
     feature_dict: FeatureTypeMap = {}
-    bad_defs: list[models.BadDefinition] = []
+    bad_defs: list[base_models.BadDefinition] = []
     for subpath in _iter_dirs(path):
         for model in _parse_directory(
             subpath, feature_types, with_bad_defs=with_bad_defs
         ):
-            if isinstance(model, models.BadDefinition):
+            if isinstance(model, base_models.BadDefinition):
                 bad_defs.append(model)
-            elif (
-                model.id in ruleset.features or model.id in ruleset.builtin_identifiers
-            ):
+            elif model.id in ruleset.features or model.id in ruleset.attribute_map:
                 bad_defs.append(
-                    models.BadDefinition(
+                    base_models.BadDefinition(
                         path=model.def_path,
                         data=model.dump(as_json=False),
                         raw_data=None,
@@ -90,7 +88,7 @@ def load_ruleset(
             feature.post_validate(ruleset)
         except Exception as exc:
             ruleset.bad_defs.append(
-                models.BadDefinition(
+                base_models.BadDefinition(
                     path=feature.def_path,
                     data=model.dump(as_json=False),
                     raw_data=None,
@@ -101,15 +99,28 @@ def load_ruleset(
             broken_features.add(id)
     for id in broken_features:
         del ruleset.features[id]
+    try:
+        # Ensure the ruleset's engine can be loaded.
+        ruleset.engine
+    except Exception as exc:
+        ruleset.bad_defs.append(
+            base_models.BadDefinition(
+                path=feature.def_path,
+                data=model.dump(as_json=False),
+                raw_data=ruleset.engine_class,
+                exception_type=type(exc).__name__,
+                exception_message=str(exc),
+            )
+        )
     return ruleset
 
 
-def deserialize_ruleset(json_data: str) -> models.BaseRuleset:
+def deserialize_ruleset(json_data: str) -> base_models.BaseRuleset:
     ruleset_dict = json.loads(json_data)
     return _parse_ruleset_dict(ruleset_dict)
 
 
-def _parse_ruleset(path: PathLike) -> models.BaseRuleset:
+def _parse_ruleset(path: PathLike) -> base_models.BaseRuleset:
     """Parse a ruleset from its ruleset.(toml|json|ya?ml) file.
 
     The actual type of the ruleset depends on its contents, but
@@ -128,9 +139,9 @@ def _parse_ruleset_dict(ruleset_dict: dict):
     if "ruleset_model_def" in ruleset_dict:
         ruleset_def = ruleset_dict["ruleset_model_def"]
     elif "ruleset" in ruleset_dict:
-        ruleset_def = ruleset_dict["ruleset"] + ".models.Ruleset"
+        ruleset_def = ruleset_dict["ruleset"] + ".Ruleset"
     ruleset_model = utils.import_name(ruleset_def)
-    if not issubclass(ruleset_model, models.BaseRuleset):
+    if not issubclass(ruleset_model, base_models.BaseRuleset):
         raise ValueError(f"{ruleset_def} does not implement BaseRuleset")
     return pydantic.parse_obj_as(ruleset_model, ruleset_dict)
 
@@ -204,7 +215,7 @@ def _suffix(path: PathLike) -> str:
     return path.suffix
 
 
-def _verify_feature_model_class(model: models.ModelDefinition) -> bool:
+def _verify_feature_model_class(model: base_models.ModelDefinition) -> bool:
     if isinstance(model, types.UnionType):
         return all(_verify_feature_model_class(c) for c in model.__args__)
     elif issubclass(model, pydantic.BaseModel):
@@ -212,13 +223,13 @@ def _verify_feature_model_class(model: models.ModelDefinition) -> bool:
     return False
 
 
-def _feature_model_map(model: models.ModelDefinition) -> FeatureTypeMap:
+def _feature_model_map(model: base_models.ModelDefinition) -> FeatureTypeMap:
     if isinstance(model, types.UnionType):
         feature_map: FeatureTypeMap = dict()
         for m in (_feature_model_map(c) for c in model.__args__):
             feature_map.update(m)
         return feature_map
-    elif issubclass(model, models.BaseFeatureDef):
+    elif issubclass(model, base_models.BaseFeatureDef):
         return {model.type_key(): model}
     else:
         raise TypeError(f"Expected feature type, got {model}")
@@ -259,7 +270,7 @@ def _parse(
             yield obj
         except (TypeError, pydantic.ValidationError) as exc:
             if with_bad_defs:
-                yield models.BadDefinition(
+                yield base_models.BadDefinition(
                     path=str(path),
                     data=data,
                     raw_data=raw_data,

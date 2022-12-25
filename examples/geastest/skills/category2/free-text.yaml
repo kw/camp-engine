@@ -2,7 +2,7 @@ name: Free Text
 option:
   freeform: True
 multiple: true
-ranks: 10
+max_ranks: 10
 cost: 1
 description: >
   This skill can be purchased multiple times, each with a different
