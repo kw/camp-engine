@@ -48,6 +48,18 @@ def maybe_iter(value: str | _T | list[str | _T] | None) -> Iterable[str | _T]:
         yield value
 
 
+def table_lookup(table: dict[int, _T], key: int) -> _T:
+    best: _T | None = None
+    for k in sorted(table.keys()):
+        if best is None or k <= key:
+            best = table[k]
+        elif k > key:
+            break
+    if best is None:
+        raise ValueError("Did not find any values in table")
+    return best
+
+
 class JSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, set):

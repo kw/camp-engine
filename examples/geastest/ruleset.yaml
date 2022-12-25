@@ -1,56 +1,44 @@
-name: Geas 5 Test
-id: geas5test
+name: Tempest Test
+id: temptest
 version: 0.1a
-ruleset: camp.engine.rules.geas5
+ruleset: camp.engine.rules.tempest
 
 # These numbers do not reflect a real ruleset, they're
 # just for test purposes.
 
 xp_table:
   0: 2
-  5: 3
-  10: 4
-  15: 5
-  20: 6
-  25: 7
-  30: 8
-  35: 9
-  40: 10
-  45: 11
-  50: 12
-  55: 13
-  60: 14
-  65: 15
-  70: 16
-  75: 17
-  80: 18
-  95: 19
-  100: 20
+  9: 3
+  18: 4
+  28: 5
+  38: 6
+  49: 7
+  60: 8
+  72: 9
+  84: 10
+  97: 11
+  110: 12
+  124: 13
+  138: 14
+  153: 15
+  168: 16
+  184: 17
+  200: 18
+  217: 19
+  234: 20
 
-lp_table:
-  2: 2
-  3: 9
-  4: 16
-  5: 25
-  6: 36
-  7: 49
-  8: 64
-  9: 81
-  10: 100
-  11: 110
-  12: 120
-  13: 130
-  14: 140
-  15: 150
-  16: 160
-  17: 170
-  18: 180
-  19: 190
-  20: 200
+lp:
+  base: 2
+  factor: 10
+  rounding: up
+
+spikes:
+  base: 2
+  factor: 8
+  rounding: down
 
 name_overrides:
   xp: XP
   cp: CP
   lp: LP
   breedcap: Max Breeds
-  armor: Armor Bonus

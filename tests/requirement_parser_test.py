@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import pytest
 
-from camp.engine.models import AllOf
-from camp.engine.models import AnyOf
-from camp.engine.models import NoneOf
-from camp.engine.models import PropExpression
-from camp.engine.models import parse_req
+from camp.engine.rules.base_models import AllOf
+from camp.engine.rules.base_models import AnyOf
+from camp.engine.rules.base_models import NoneOf
+from camp.engine.rules.base_models import PropExpression
+from camp.engine.rules.base_models import parse_req
 
 
 @pytest.mark.parametrize(
@@ -37,7 +39,7 @@ def test_prarse_propreq_values():
     assert p.prop == "feature-id"
     assert p.tier == 1
     assert p.option == "My Option"
-    assert p.minimum == 23
+    assert p.value == 23
     assert p.single == 34
     assert p.less_than == 450
 
@@ -79,7 +81,7 @@ def test_parse_req():
             ),
             AnyOf(
                 any=[
-                    PropExpression(prop="four", minimum=4),
+                    PropExpression(prop="four", value=4),
                     PropExpression(prop="five", single=5),
                     AllOf(all=[PropExpression(prop="six", tier=6)]),
                 ]

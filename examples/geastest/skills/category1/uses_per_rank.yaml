@@ -1,5 +1,5 @@
 name: Uses Per Rank
-ranks: 5
+max_ranks: 5
 uses: 1
 cost: 1
 description: >
