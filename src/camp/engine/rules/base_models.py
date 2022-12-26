@@ -471,7 +471,9 @@ class FeatureMatcher(BaseModel):
         values["attrs"] = attrs
         return values
 
-    def matches(self, feature: BaseFeatureDef, character: CharacterModel) -> bool:
+    def matches(
+        self, feature: BaseFeatureDef, character: base_engine.CharacterController
+    ) -> bool:
         """Does this feature match the matcher?
 
         Args:

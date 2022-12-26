@@ -29,6 +29,9 @@ class Decision(BaseModel):
     def __bool__(self) -> bool:
         return self.success
 
+    class Config:
+        allow_mutation = False
+
 
 Decision.UNSUPPORTED = Decision(success=False, reason="Unsupported")
 Decision.SUCCESS = Decision(success=True)
