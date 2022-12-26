@@ -68,6 +68,10 @@ class CharacterController(ABC):
                 return attr.default_value
         return 0
 
+    def get_options(self, expr: str) -> dict[str, int]:
+        """Retrieves the options (and their values) for a particular property or feature."""
+        return {}
+
     @abstractmethod
     def can_purchase(self, entry: base_models.Purchase | str) -> Decision:
         ...
@@ -106,12 +110,12 @@ class CharacterController(ABC):
         if not option_def.values:
             return set()
         options_excluded: set[str] = set()
-        if exclude_taken and (feature_entries := self.model.features.get(feature_id)):
+        if exclude_taken and (taken_options := self.get_options(feature_id)):
             if not feature_def.multiple:
                 # The feature can only have a single option and it already
                 # has one, so no other options are legal.
                 return set()
-            options_excluded = {e.option for e in feature_entries.values() if e.option}
+            options_excluded = set(taken_options.keys())
 
         legal_values = set(option_def.values)
         if option_def.values_flag:
@@ -195,6 +199,10 @@ class FeatureController(PropertyController):
 
     def decrease(self, value: int) -> Decision:
         return Decision.UNSUPPORTED
+
+    @property
+    def taken_options(self) -> dict[str, int]:
+        return {}
 
     def __str__(self) -> str:
         if self.expr.option:

@@ -20,6 +20,8 @@ class TempestCharacter(base_engine.CharacterController):
     model: models.CharacterModel
     engine: TempestEngine
     ruleset: defs.Ruleset
+    _classes: dict[str, ClassController] | None = None
+    _skills: dict[str, SkillController] | None = None
 
     @property
     def xp(self) -> int:
@@ -79,6 +81,8 @@ class TempestCharacter(base_engine.CharacterController):
 
         The primary class will be first in iteration order.
         """
+        if self._classes:
+            return self._classes
         classes: dict[str, ClassController] = {}
         primary = self.model.primary_class
         if primary:
@@ -89,7 +93,18 @@ class TempestCharacter(base_engine.CharacterController):
                 # Already added.
                 continue
             classes[id] = ClassController(id, self)
+        self._classes = classes
         return classes
+
+    @property
+    def skills(self) -> dict[str, SkillController]:
+        if self._skills:
+            return self._skills
+        skills: dict[str, SkillController] = {}
+        for id in self.model.skills:
+            skills[id] = SkillController(id, self)
+        self._skills = skills
+        return skills
 
     def can_purchase(self, entry: Purchase | str) -> Decision:
         if not isinstance(entry, Purchase):
@@ -114,19 +129,29 @@ class TempestCharacter(base_engine.CharacterController):
         must be added by implementations.
         """
         expr = PropExpression.parse(expr)
-        if self._controller_for_feature(expr):
-            return True
+        if controller := self._controller_for_feature(expr, create=True):
+            return controller.value > 0
         return super().has_prop(expr)
 
     def get_prop(self, expr: str | PropExpression) -> int:
         expr = PropExpression.parse(expr)
-        if controller := self._controller_for_feature(expr):
+        if controller := self._controller_for_feature(expr, create=True):
             return controller.value
         return super().get_prop(expr)
 
+    def get_options(self, id: str) -> dict[str, int]:
+        if controller := self._controller_for_feature(
+            PropExpression.parse(id), create=True
+        ):
+            return controller.taken_options
+        return super().get_options(id)
+
     @property
     def features(self) -> Mapping[str, Mapping[str, base_engine.FeatureController]]:
-        return {"class": self.classes}
+        return {
+            "class": self.classes,
+            "skill": self.skills,
+        }
 
     @cached_property
     def martial(self) -> base_engine.AttributeController:
@@ -150,6 +175,8 @@ class TempestCharacter(base_engine.CharacterController):
         match feature_type:
             case "class":
                 return ClassController(id, self)
+            case "skill":
+                return SkillController(id, self)
         raise NotImplementedError(
             f"Unknown feature controller {feature_type} for feature {id}"
         )
@@ -169,6 +196,11 @@ class TempestCharacter(base_engine.CharacterController):
         if create:
             return self._controller_for_type(feature_def.type, expr.full_id)
         return None
+
+    def clear_caches(self):
+        super().clear_caches()
+        self._classes = {}
+        self._skills = {}
 
 
 class ClassController(base_engine.FeatureController):
@@ -212,14 +244,14 @@ class ClassController(base_engine.FeatureController):
         return self.character.model.classes.get(self.id, 0)
 
     def can_increase(self, value: int = 1) -> Decision:
+        if value <= 0:
+            return _MUST_BE_POSITIVE
         character_available = self.character.levels_available
         class_available = self.definition.max_ranks - self.value
         available = min(character_available, class_available)
         return Decision(success=available >= value, amount=available)
 
     def increase(self, value: int) -> Decision:
-        if value <= 0:
-            return _MUST_BE_POSITIVE
         if self.character.level == 0 and value < 2:
             # This is the character's first class. Ensure at least 2 ranks are purchased.
             value = 2
@@ -233,12 +265,16 @@ class ClassController(base_engine.FeatureController):
         ):
             self.character.model.primary_class = self.id
         self.character.model.classes[self.id] = new_value
-        self.character.clear_caches()
+        if current == 0:
+            # This is a new class for this character. Cache this controller.
+            self.character._classes[self.id] = self
         return Decision(success=True, amount=self.value)
 
     def can_decrease(self, value: int = 1) -> Decision:
         if not self.character.can_respend:
             return _NO_RESPEND
+        if value <= 0:
+            return _MUST_BE_POSITIVE
         current = self.character.model.classes[self.id]
         return Decision(success=current >= value, amount=current)
 
@@ -254,14 +290,140 @@ class ClassController(base_engine.FeatureController):
             self.character.model.classes[self.id] = new_value
         else:
             del self.character.model.classes[self.id]
+            del self.character._classes[self.id]
         if (
             self.primary
             and max(self.character.model.classes.values(), default=0) < new_value
         ):
             self.character.model.primary_class = None
-        self.character.clear_caches()
         # Determine if we can easily reverse a level gain in the model's grants cache.
         # Otherwise, clear the grants cache.
+        return Decision(success=True, amount=self.value)
+
+
+class SkillController(base_engine.FeatureController):
+    character: TempestCharacter
+    definition: defs.SkillDef
+    full_id: str
+    option: str | None
+
+    def __init__(self, full_id: str, character: TempestCharacter):
+        expr = PropExpression.parse(full_id)
+        id = expr.prop
+        super().__init__(id, character)
+        self.full_id = full_id
+        self.definition = character.ruleset.features[id]
+        self.option = expr.option
+        if not isinstance(self.definition, defs.SkillDef):
+            raise ValueError(
+                f"Expected {id} to be a skill, but was {type(self.definition)}"
+            )
+
+    @property
+    def is_option_skill(self) -> bool:
+        return self.definition.option is not None
+
+    @property
+    def value(self) -> int:
+        if self.is_option_skill and not self.option:
+            # This is an aggregate controller for the skill.
+            # Sum any ranks the character has in instances of it.
+            total: int = 0
+            for skill, purchases in self.character.model.skills.items():
+                if skill.startswith(f"{self.id}#"):
+                    # Note that we don't need to iterate over the keys in the
+                    # grants dictionary. If a grant is provided for a skill with
+                    # no ranks, we always add a 0 entry to the 'skills' dict for it
+                    # so that it always represents the skills on the sheet.
+                    grants = self.character.model.skill_grants.get(skill, 0)
+                    total += purchases + grants
+            return total
+        ranks = self.character.model.skills.get(
+            self.full_id, 0
+        ) + self.character.model.skill_grants.get(self.full_id, 0)
+        return min(ranks, self.definition.max_ranks)
+
+    @property
+    def max_value(self) -> int:
+        if self.is_option_skill and not self.option:
+            # This is an aggregate controller for the skill.
+            # Return the value of the highest instance.
+            current: int = 0
+            for skill, purchases in self.character.model.skills.items():
+                if skill.startswith(f"{self.id}#"):
+                    # Note that we don't need to iterate over the keys in the
+                    # grants dictionary. If a grant is provided for a skill with
+                    # no ranks, we always add a 0 entry to the 'skills' dict for it
+                    # so that it always represents the skills on the sheet.
+                    new_value = min(
+                        self.definition.max_ranks,
+                        purchases + self.character.model.skill_grants.get(skill, 0),
+                    )
+                    if new_value > current:
+                        current = new_value
+            return current
+        return self.value
+
+    @property
+    def taken_options(self) -> dict[str, int]:
+        options = {}
+        for controller in self.character.skills.values():
+            if controller.id == self.id and controller.option:
+                options[controller.option] = controller.value
+        return options
+
+    def can_increase(self, value: int) -> Decision:
+        if value <= 0:
+            return _MUST_BE_POSITIVE
+        current = self.value
+        if current >= self.definition.max_ranks:
+            return Decision(success=False)
+        # Is the purchase within defined range?
+        if (current + value) > self.definition.max_ranks:
+            max_increase = self.definition.max_ranks - current
+            return Decision(
+                success=False,
+                reason=f"Can't increase {self.id} by {value}",
+                amount=max_increase,
+            )
+        # Does the character meet the prerequisites?
+        if not (rd := self.character.meets_requirements(self.definition.requires)):
+            return rd
+        # Can the character afford the purchase?
+        # TODO
+        # Is this an option skill without an option specified?
+        if self.is_option_skill and not self.option:
+            return Decision(success=False, needs_option=True)
+        elif (
+            self.is_option_skill
+            and self.option
+            and not self.definition.option.freeform
+            and current == 0
+        ):
+            # The player is trying to buy a new option. Verify that it's legal.
+            options_available = self.character.options_values_for_feature(
+                self.id, exclude_taken=True
+            )
+            if self.option not in options_available:
+                return Decision(
+                    success=False,
+                    reason=f"'{self.option}' not a valid option for {self.id}",
+                )
+        # Is this a non-option skill and an option was specified anyway?
+        if not self.is_option_skill and self.option:
+            return Decision(
+                success=False, reason=f"Skill {self.id} does not accept options."
+            )
+        return Decision.SUCCESS
+
+    def increase(self, value: int) -> Decision:
+        if not (rd := self.can_increase(value)):
+            return rd
+        current = self.character.model.skills.get(self.full_id, 0)
+        self.character.model.skills[self.full_id] = current + value
+        if current == 0:
+            # This is a new skill for this character. Cache this controller.
+            self.character._skills[self.full_id] = self
         return Decision(success=True, amount=self.value)
 
 
