@@ -42,6 +42,20 @@ class TempestCharacter(base_engine.CharacterController):
         # TODO: Calculate XP levels past the max in the table.
         return utils.table_lookup(self.ruleset.xp_table, self.xp)
 
+    @xp_level.setter
+    def xp_level(self, value):
+        """Set the XP level to a specific level.
+
+        This is a convenience method primarily for testing purposes. If an XP
+        level is manually set, the copy of the metadata attached to the sheet will be
+        overwritten with the needed XP. Characters in a real app will likely have
+        their source of metadata truth stored elsewhere and applied on load, so
+        persisting this change will not do what you want for such characters.
+        """
+        self.model.metadata.currencies["xp"] = utils.table_reverse_lookup(
+            self.ruleset.xp_table, value
+        )
+
     @property
     def base_cp(self) -> int:
         return self.model.metadata.currencies["cp"] + 2 * self.xp_level
@@ -74,6 +88,14 @@ class TempestCharacter(base_engine.CharacterController):
     @property
     def levels_available(self) -> int:
         return self.xp_level - self.level.value
+
+    @property
+    def primary_class(self) -> str | None:
+        return self.model.primary_class
+
+    @property
+    def starting_class(self) -> str | None:
+        return self.model.starting_class
 
     @property
     def classes(self) -> dict[str, ClassController]:
@@ -110,8 +132,13 @@ class TempestCharacter(base_engine.CharacterController):
         if not isinstance(entry, Purchase):
             entry = Purchase.parse(entry)
         if controller := self._controller_for_feature(entry.expression, create=True):
-            return controller.can_increase(entry.ranks)
-        return Decision(success=False, reason=f"Not implemented: {entry.expression}")
+            if entry.ranks > 0:
+                return controller.can_increase(entry.ranks)
+            elif entry.ranks < 0:
+                return controller.can_decrease(-entry.ranks)
+        return Decision(
+            success=False, reason=f"Purchase not implemented: {entry.expression}"
+        )
 
     def purchase(self, entry: Purchase | str) -> Decision:
         if not isinstance(entry, Purchase):
@@ -119,8 +146,13 @@ class TempestCharacter(base_engine.CharacterController):
         if not isinstance(entry, Purchase):
             entry = Purchase.parse(entry)
         if controller := self._controller_for_feature(entry.expression, create=True):
-            return controller.increase(entry.ranks)
-        return Decision(success=False, reason=f"Not implemented: {entry.expression}")
+            if entry.ranks > 0:
+                return controller.increase(entry.ranks)
+            elif entry.ranks < 0:
+                return controller.decrease(-entry.ranks)
+        return Decision(
+            success=False, reason=f"Purchase not implemented: {entry.expression}"
+        )
 
     def has_prop(self, expr: str | PropExpression) -> bool:
         """Check whether the character has _any_ property (feature, attribute, etc) with the given name.
@@ -268,6 +300,8 @@ class ClassController(base_engine.FeatureController):
         if current == 0:
             # This is a new class for this character. Cache this controller.
             self.character._classes[self.id] = self
+        if self.character.model.starting_class is None:
+            self.character.model.starting_class = self.id
         return Decision(success=True, amount=self.value)
 
     def can_decrease(self, value: int = 1) -> Decision:
@@ -276,13 +310,24 @@ class ClassController(base_engine.FeatureController):
         if value <= 0:
             return _MUST_BE_POSITIVE
         current = self.character.model.classes[self.id]
+        # If this is the starting class, it can't be reduced below level 2
+        # unless it's the only class on the sheet.
+        if (
+            self.character.model.starting_class == self.id
+            and len(self.character.model.classes) > 1
+        ):
+            if current - value < 2:
+                return Decision(
+                    success=False,
+                    amount=(current - 2),
+                    reason="Can't reduce starting class levels below 2 while multiclassed.",
+                )
         return Decision(success=current >= value, amount=current)
 
     def decrease(self, value: int) -> Decision:
         if value <= 0:
             return _MUST_BE_POSITIVE
         if not (rd := self.can_decrease(value)):
-            rd.success = False
             return rd
         current = self.value
         new_value = current - value
@@ -291,11 +336,18 @@ class ClassController(base_engine.FeatureController):
         else:
             del self.character.model.classes[self.id]
             del self.character._classes[self.id]
+        if self.character.level < 2:
+            self.character.model.classes.clear()
+            self.character._classes.clear()
         if (
             self.primary
             and max(self.character.model.classes.values(), default=0) < new_value
         ):
+            # TODO: Auto-set to the new highest
             self.character.model.primary_class = None
+        if self.character.level == 0:
+            self.character.model.primary_class = None
+            self.character.model.starting_class = None
         # Determine if we can easily reverse a level gain in the model's grants cache.
         # Otherwise, clear the grants cache.
         return Decision(success=True, amount=self.value)

@@ -4,6 +4,8 @@ from abc import ABC
 from abc import abstractmethod
 from abc import abstractproperty
 from functools import cached_property
+from functools import total_ordering
+from typing import Any
 from typing import Type
 
 import pydantic
@@ -77,7 +79,7 @@ class CharacterController(ABC):
         ...
 
     @abstractmethod
-    def purchase(self, purchase: base_models.Purchase | str) -> Decision:
+    def purchase(self, entry: base_models.Purchase | str) -> Decision:
         ...
 
     def meets_requirements(self, requirements: base_models.Requirements) -> Decision:
@@ -162,6 +164,7 @@ class CharacterController(ABC):
         )
 
 
+@total_ordering
 class PropertyController(ABC):
     id: str
     character: CharacterController
@@ -177,6 +180,22 @@ class PropertyController(ABC):
     @property
     def max_value(self) -> int:
         return self.value
+
+    def __eq__(self, other: Any) -> bool:
+        if self is other:
+            return True
+        match other:
+            case PropertyController():
+                return self.value == other.value
+            case _:
+                return self.value == other
+
+    def __lt__(self, other: Any) -> bool:
+        match other:
+            case PropertyController():
+                return self.value < other.value
+            case _:
+                return self.value < other
 
 
 class FeatureController(PropertyController):
