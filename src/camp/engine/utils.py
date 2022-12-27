@@ -60,6 +60,14 @@ def table_lookup(table: dict[int, _T], key: int) -> _T:
     return best
 
 
+def table_reverse_lookup(table: dict[int, _T], value: _T) -> int:
+    for k in sorted(table.keys()):
+        if table[k] == value:
+            return k
+    # Failure case: The value isn't in the table. Use the last key.
+    return max(table.keys())
+
+
 class JSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, set):

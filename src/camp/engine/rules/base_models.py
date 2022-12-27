@@ -21,11 +21,11 @@ from .decision import Decision
 
 _REQ_SYNTAX = re.compile(
     r"""(?P<prop>[a-zA-Z0-9_-]+)
-    (?:@(?P<tier>\d+))?          # Tier, aka "@4"
+    (?:@(?P<tier>-?\d+))?          # Tier, aka "@4"
     (?:\#(?P<option>[a-zA-Z0-9?_-]+))?   # Skill options, aka "#Undead_Lore"
-    (?::(?P<value>\d+))?       # Minimum value, aka ":5"
-    (?:\$(?P<single>\d+))?       # Minimum value in single thing, aka "$5"
-    (?:<(?P<less_than>\d+))?     # Less than value, aka "<5"
+    (?::(?P<value>-?\d+))?       # Minimum value, aka ":5"
+    (?:\$(?P<single>-?\d+))?       # Minimum value in single thing, aka "$5"
+    (?:<(?P<less_than>-?\d+))?     # Less than value, aka "<5"
     """,
     re.VERBOSE,
 )
