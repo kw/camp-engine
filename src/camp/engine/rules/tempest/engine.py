@@ -335,7 +335,6 @@ class ClassController(base_engine.FeatureController):
             self.character.model.classes[self.id] = new_value
         else:
             del self.character.model.classes[self.id]
-            del self.character._classes[self.id]
         if self.character.level < 2:
             self.character.model.classes.clear()
             self.character._classes.clear()
@@ -374,6 +373,26 @@ class SkillController(base_engine.FeatureController):
     @property
     def is_option_skill(self) -> bool:
         return self.definition.option is not None
+
+    @property
+    def purchased_ranks(self) -> int:
+        # Unlike `value`, we don't care about whether this is an option skill.
+        # Raw option skills never have purchases.
+        return self.character.model.skills.get(self.full_id, 0)
+
+    @purchased_ranks.setter
+    def purchased_ranks(self, value):
+        self.character.model.skills[self.full_id] = value
+
+    @property
+    def granted_ranks(self) -> int:
+        return self.character.model.skill_grants.get(self.full_id, 0)
+
+    @granted_ranks.setter
+    def granted_ranks(self, value):
+        self.character.model.skill_grants[self.full_id] = value
+        if self.full_id not in self.character.model.skills:
+            self.character.model.skills[self.full_id] = 0
 
     @property
     def value(self) -> int:
@@ -435,7 +454,7 @@ class SkillController(base_engine.FeatureController):
             max_increase = self.definition.max_ranks - current
             return Decision(
                 success=False,
-                reason=f"Can't increase {self.id} by {value}",
+                reason=f"Max is {self.definition.max_ranks}, so can't increase to {current + value}",
                 amount=max_increase,
             )
         # Does the character meet the prerequisites?
@@ -471,12 +490,36 @@ class SkillController(base_engine.FeatureController):
     def increase(self, value: int) -> Decision:
         if not (rd := self.can_increase(value)):
             return rd
-        current = self.character.model.skills.get(self.full_id, 0)
-        self.character.model.skills[self.full_id] = current + value
+        current = self.purchased_ranks
+        self.purchased_ranks = current + value
         if current == 0:
             # This is a new skill for this character. Cache this controller.
             self.character._skills[self.full_id] = self
         return Decision(success=True, amount=self.value)
+
+    def can_decrease(self, value: int) -> Decision:
+        if value < 1:
+            return _MUST_BE_POSITIVE
+        purchases = self.purchased_ranks
+        if value > purchases:
+            return Decision(
+                success=False,
+                reason=f"Can't sell back {value} ranks when you've only purchased {purchases} ranks.",
+                amount=(value - purchases),
+            )
+        return Decision.SUCCESS
+
+    def decrease(self, value: int) -> Decision:
+        if not (rd := self.can_decrease(value)):
+            return rd
+        current = self.purchased_ranks
+        self.purchased_ranks = new_value = current - value
+        if new_value < 1 and self.granted_ranks < 1:
+            if self.full_id in self.character.model.skills:
+                del self.character.model.skills[self.full_id]
+            if self.full_id in self.character.model.skill_grants:
+                del self.character.model.skill_grants[self.full_id]
+        return Decision.SUCCESS
 
 
 class SumAttribute(base_engine.AttributeController):

@@ -26,6 +26,14 @@ def character(engine: Engine) -> CharacterController:
 def test_add_basic_skill(character: CharacterController):
     assert character.can_purchase("basic-skill")
     assert character.purchase("basic-skill")
+    assert character.meets_requirements("basic-skill")
+
+
+def test_remove_skill(character: CharacterController):
+    character.purchase("basic-skill")
+    assert character.can_purchase("basic-skill:-1")
+    assert character.purchase("basic-skill:-1")
+    assert not character.meets_requirements("basic-skill")
 
 
 def test_add_basic_feature_twice(character: CharacterController):
@@ -56,6 +64,15 @@ def test_one_requirement_met(character: CharacterController):
     character.purchase("basic-skill")
     assert character.can_purchase("one-requirement")
     assert character.purchase("one-requirement")
+
+
+@pytest.mark.xfail
+def test_remove_requirement(character: CharacterController):
+    """You can't sell back a skill if another skill depends on it."""
+    character.purchase("basic-skill")
+    character.purchase("one-requirement")
+    assert not character.can_purchase("basic-skill:-1")
+    assert not character.purchase("basic-skill:-1")
 
 
 def test_erroneous_option_provided(character: CharacterController):
