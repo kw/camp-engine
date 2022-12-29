@@ -7,11 +7,8 @@ from typing import Literal
 from typing import Type
 from typing import TypeAlias
 
-import pydantic
 from pydantic import Field
 from pydantic import NonNegativeInt
-from pydantic import PositiveInt
-from pydantic import PrivateAttr
 
 from camp.engine.rules import base_models
 from camp.engine.utils import maybe_iter
@@ -19,52 +16,16 @@ from camp.engine.utils import maybe_iter
 from . import models
 
 Attribute: TypeAlias = base_models.Attribute
+Grantable: TypeAlias = str | list[str] | dict[str, int]
 
 
-class Discount(base_models.BaseModel):
-    id: str = None
-    cp: pydantic.PositiveInt | None = None
-    per_rank: bool = True
-    min: pydantic.NonNegativeInt = 1
+class BaseFeatureDef(base_models.BaseFeatureDef):
+    grants: Grantable | None = None
 
 
-class Slot(base_models.BaseModel):
-    slot: str
-    choices: list[str] | None = None
-    feature_type: str | None = None
-    discount: Discount | None = None
-    limit: pydantic.PositiveInt = 1
-
-
-class GrantsByRank(base_models.BaseModel):
-    by_rank: dict[PositiveInt, Grantables] = Field(alias="by_level")
-    ref: str | None = None
-    _max_rank: int = PrivateAttr(default=0)
-    _cache: dict[PositiveInt, list[Grantable]] = PrivateAttr(default_factory=dict)
-
-    def grants(self, rank: int) -> list[Grantable]:
-        if not self._max_rank:
-            self._max_rank = max(self.__root__.keys())
-        rank = min(rank, self._max_rank)
-        if rank not in self._cache:
-            grants = []
-            for r, v in self.by_rank.items():
-                if r <= rank:
-                    for g in maybe_iter(v):
-                        grants.append(g)
-            self._cache[rank] = grants
-        return self._cache[grants]
-
-
-Grantable: TypeAlias = str | Discount | Slot | GrantsByRank | dict[str, int]
-Grantables: TypeAlias = list[Grantable] | Grantable | None
-GrantsByRank.update_forward_refs()
-
-
-class ClassFeatureDef(base_models.BaseFeatureDef):
+class ClassFeatureDef(BaseFeatureDef):
     type: Literal["classfeature"] = "classfeature"
     class_: str | None = Field(alias="class", default=None)
-    grants: Grantables = None
 
     def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
         super().post_validate(ruleset)
@@ -72,12 +33,12 @@ class ClassFeatureDef(base_models.BaseFeatureDef):
             ruleset.validate_identifiers(_grantable_identifiers(self.grants))
 
 
-class ClassDef(base_models.BaseFeatureDef):
+class ClassDef(BaseFeatureDef):
     type: Literal["class"] = "class"
     sphere: Literal["arcane", "divine", "martial"] = "martial"
-    starting_features: Grantables = None
-    multiclass_features: Grantables = None
-    bonus_features: dict[int, Grantables] | None = None
+    starting_features: Grantable | None = None
+    multiclass_features: Grantable | None = None
+    bonus_features: dict[int, Grantable] | None = None
     level_table_columns: dict[str, dict]
     levels: dict[int, dict]
     # By default, classes have 10 levels.
@@ -126,20 +87,20 @@ class CostByValue(base_models.BaseModel):
     locked: bool = True
 
 
-class SkillDef(base_models.BaseFeatureDef):
+class SkillDef(BaseFeatureDef):
     type: Literal["skill"] = "skill"
     category: str = "General"
     cost: int | CostByValue
     uses: int | None = None
     option: base_models.OptionDef | None = None
-    grants: Grantables = None
+    grants: Grantable = None
 
     def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
         super().post_validate(ruleset)
         ruleset.validate_identifiers(_grantable_identifiers(self.grants))
 
 
-class PowerDef(base_models.BaseFeatureDef):
+class PowerDef(BaseFeatureDef):
     type: Literal["power"] = "power"
     sphere: Literal["arcane", "divine", "martial", None] = None
     tier: NonNegativeInt | None = None
@@ -153,7 +114,7 @@ class PowerDef(base_models.BaseFeatureDef):
     delivery: str | None = None
     refresh: str | None = None
     effect: str | None = None
-    grants: Grantables = None
+    grants: Grantable = None
 
     def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
         super().post_validate(ruleset)
@@ -251,20 +212,10 @@ class Ruleset(base_models.BaseRuleset):
         return models.CharacterModel
 
 
-def _grantable_identifiers(grantables: Grantables | Iterable[Grantables]) -> set[str]:
+def _grantable_identifiers(grantables: Grantable | Iterable[Grantable]) -> set[str]:
     id_set = set()
     for g in maybe_iter(grantables):
         match g:  # type: ignore
-            case Discount():  # type: ignore
-                id_set.update(_grantable_identifiers(g.id))
-            case Slot():  # type: ignore
-                id_set.update(_grantable_identifiers(g.discount))
-                id_set.update(_grantable_identifiers(g.choices))
-                id_set.update(_grantable_identifiers(g.feature_type))
-            case GrantsByRank():
-                if g.ref:
-                    id_set.update(g.ref)
-                id_set.update(_grantable_identifiers(list(g.by_rank.values())))
             case list():
                 id_set.update(_grantable_identifiers(g))
             case dict():
