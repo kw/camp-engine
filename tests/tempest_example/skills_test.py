@@ -147,3 +147,17 @@ def test_multiple_option_skill_without_option(character: CharacterController):
     assert not character.can_purchase(fid)
     options = character.get_options(fid)
     assert options == {"One": 1, "Two": 1, "Three": 1}
+
+
+def test_skill_with_one_grant(character: CharacterController):
+    assert character.can_purchase("grants-skill")
+    assert character.purchase("grants-skill")
+    assert character.meets_requirements("grants-skill")
+    assert character.meets_requirements("granted-skill")
+
+
+def test_skill_with_one_grant_sellback(character: CharacterController):
+    character.purchase("grants-skill")
+    assert character.meets_requirements("granted-skill")
+    assert character.purchase("grants-skill:-1")
+    assert not character.meets_requirements("granted-skill")
