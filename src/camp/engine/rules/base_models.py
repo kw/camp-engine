@@ -525,14 +525,35 @@ class CharacterMetadata(BaseModel):
     records, service point expenditures, etc. The metadata provided
     might vary, for example, for a level-down sheet at a level
     capped event.
+
+    Attributes:
+        id: The character ID this applies to.
+        player_id: The player ID this applies to.
+        character_name: The actual name of the character. A single character
+            might have various sheets with their own sheet names, but the
+            actual character name will be in the metadata.
+        player_name: The actual name of the player. Mostly here for offline
+            use in the future, where a character data blob might need to be
+            printed without datatabase access.
+        awards: Awarded currency values. Since the award schedule isn't necessarily
+            deterministic, this is left as an out-of-engine concern. For example,
+            Tempest awards bonus CP for turning in a backstory, and +1 CP for each
+            full weekend event attended, but double value if attending the game
+            while below the campaign maximum CP, but the maximum doesn't apply to
+            CP earned in other chapters, or does it? Game engine doesn't care,
+            just tell it how many CP you got.
+        flags: Extra flags for the engine to interpret. These may be "feature flags"
+            for experimentation, extra options for skills that have set options (allowing
+            things like "I want Craftsman (Orthodontist) but it's not in the list" without
+            having to modify the actual ruleset), flagging the character as being able to
+            see certain secret purchase options, and so on.
     """
 
     id: str = pydantic.Field(default=uuid4)
     player_id: str | None = None
     character_name: str | None = None
     player_name: str | None = None
-    events_played: float = 0.0
-    currencies: dict[str, int] = pydantic.Field(default_factory=dict)
+    awards: dict[str, int] = pydantic.Field(default_factory=dict)
     flags: dict[str, FlagValues] = pydantic.Field(default_factory=dict)
 
 
