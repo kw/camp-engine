@@ -12,6 +12,7 @@ from pydantic import NonNegativeInt
 
 from camp.engine.rules import base_models
 from camp.engine.utils import maybe_iter
+from camp.engine.utils import table_lookup
 
 from . import models
 
@@ -60,37 +61,37 @@ class ClassDef(BaseFeatureDef):
             self.tags.add("caster")
 
 
-class CostByValue(base_models.BaseModel):
+class CostByRank(base_models.BaseModel):
     """For when the cost of something depends on something.
 
     Attributes:
-        prop: What property does it depend on? Common cases:
-            None: The rank of this thing. Use when the cost
-                of a thing depends on how many of it you have.
-            'level': The level of the character when you purchased
-                the thing.
-        value: Map of rank/level/whatevers to costs. Any value that
-            isn't map assumes the next lowest cost. For example:
+        rank: Map of rank to costs. Any value that isn't map assumes
+        the next lowest cost. For example:
                 1: 1
                 5: 3
                 10: 5
-            means: Ranks from 1-4 cost 1 point. Ranks from 5-9 cost 3.
+            means: Ranks from 1-4 cost 1 point each. Ranks from 5-9 cost 3.
                 Ranks 10+ cost 5.
-        locked: The cost depends on the value at the time when the
-            purchase is made. It does not fluctuate as the character
-            levels up or whatever. This will cause the locked value to
-            be recorded with the purchase.
     """
 
-    prop: str | None = None
-    value: dict[int, int]
-    locked: bool = True
+    ranks: dict[int, int]
+
+    def single_rank_cost(self, rank: int) -> int:
+        """The cost of a particular rank."""
+        return table_lookup(self.ranks, rank)
+
+    def total_cost(self, ranks: int) -> int:
+        """The combined cost of a given number of ranks."""
+        total: int = 0
+        for rank in range(1, ranks + 1):
+            total += table_lookup(self.ranks, rank)
+        return total
 
 
 class SkillDef(BaseFeatureDef):
     type: Literal["skill"] = "skill"
     category: str = "General"
-    cost: int | CostByValue
+    cost: int | CostByRank
     uses: int | None = None
     option: base_models.OptionDef | None = None
     grants: Grantable = None
@@ -144,9 +145,13 @@ class AttributeScaling(base_models.BaseModel):
 class Ruleset(base_models.BaseRuleset):
     engine_class = "camp.engine.rules.tempest.engine.TempestEngine"
     features: dict[str, FeatureDefinitions] = Field(default_factory=dict)
-    breedcap: int = 2
-    flaw_cap: int = 5
+    breed_count_cap: int = 2
+    breed_primary_bp_cap: int = 10
+    breed_secondary_bp_cap: int = 5
+    flaw_cp_cap: int = 5
     flaw_overcome: int = 2
+    cp_baseline: int = 1
+    cp_per_level: int = 2
     xp_table: dict[int, int]
     lp: AttributeScaling = AttributeScaling(base=2, factor=10, rounding="up")
     spikes: AttributeScaling = AttributeScaling(base=2, factor=8, rounding="down")

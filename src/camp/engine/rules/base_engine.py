@@ -60,7 +60,9 @@ class CharacterController(ABC):
         if attr := self.engine.attribute_map.get(expr.prop):
             # There are a few different ways an attribute might be stored or computed.
             if hasattr(self, attr.property_name or attr.id):
-                attr_value = getattr(self, attr.property_name or attr.id)
+                attr_value: AttributeController | int = getattr(
+                    self, attr.property_name or attr.id
+                )
                 if isinstance(attr_value, AttributeController):
                     if expr.single is not None:
                         return attr_value.max_value

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from abc import abstractmethod
 from abc import abstractproperty
 from functools import cached_property
@@ -28,7 +29,7 @@ class TempestCharacter(base_engine.CharacterController):
     @property
     def xp(self) -> int:
         """Experience points"""
-        return self.model.metadata.currencies.get("xp", 0)
+        return self.model.metadata.awards.get("xp", 0)
 
     @property
     def xp_level(self) -> int:
@@ -54,13 +55,26 @@ class TempestCharacter(base_engine.CharacterController):
         their source of metadata truth stored elsewhere and applied on load, so
         persisting this change will not do what you want for such characters.
         """
-        self.model.metadata.currencies["xp"] = utils.table_reverse_lookup(
+        self.model.metadata.awards["xp"] = utils.table_reverse_lookup(
             self.ruleset.xp_table, value
         )
 
     @property
     def base_cp(self) -> int:
-        return self.model.metadata.currencies["cp"] + 2 * self.xp_level
+        """CP granted by formula from the ruleset.
+
+        By default, this is 1 + 2 * Level.
+        """
+        return self.ruleset.cp_baseline + (self.ruleset.cp_per_level * self.xp_level)
+
+    @property
+    def awarded_cp(self) -> int:
+        """CP granted by fiat (backstory writing, etc)."""
+        return self.model.metadata.awards.get("cp", 0)
+
+    @awarded_cp.setter
+    def awarded_cp(self, value: int) -> None:
+        self.model.metadata.awards["cp"] = value
 
     @property
     def base_lp(self) -> int:
@@ -82,6 +96,10 @@ class TempestCharacter(base_engine.CharacterController):
         """
         # TODO: Actually base this on something
         return True
+
+    @cached_property
+    def cp(self) -> base_engine.AttributeController:
+        return CharacterPointController("cp", self)
 
     @cached_property
     def level(self) -> base_engine.AttributeController:
@@ -240,7 +258,7 @@ class FeatureController(base_engine.FeatureController):
     definition: defs.BaseFeatureDef
     expression: PropExpression
     full_id: str
-    _effective_ranks: int
+    _effective_ranks: int | None
     _granted_ranks: int
 
     def __init__(self, full_id: str, character: TempestCharacter):
@@ -248,7 +266,7 @@ class FeatureController(base_engine.FeatureController):
         self.full_id = full_id
         super().__init__(self.expression.prop, character)
         self.definition = character.ruleset.features[self.id]
-        self._effective_ranks = 0
+        self._effective_ranks = None
         self._granted_ranks = 0
 
     @abstractproperty
@@ -260,7 +278,29 @@ class FeatureController(base_engine.FeatureController):
         return self._granted_ranks
 
     @property
+    def paid_ranks(self) -> int:
+        """Number of ranks purchased that actually need to be paid for with some currency.
+
+        This is generally equal to `purchased_ranks`, but when grants push the total over the
+        feature's maximum, these start to be refunded. They remain on the sheet in case the
+        grants are revoked in the future due to an undo, a sellback, a class level swap, etc.
+        """
+        total = self.purchased_ranks + self.granted_ranks
+        max_ranks = self.definition.max_ranks
+        if total <= max_ranks:
+            return self.purchased_ranks
+        # The feature is at maximum. Only pay for ranks that haven't been granted.
+        # Note that the total grants could also exceed max_ranks. This is more likely
+        # to happen with single-rank features like weapon proficiencies that a character
+        # might receive from multiple classes.
+        if self.granted_ranks < max_ranks:
+            return max_ranks - self.granted_ranks
+        return 0
+
+    @property
     def value(self) -> int:
+        if self._effective_ranks is None:
+            self.reconcile()
         return self._effective_ranks
 
     @abstractmethod
@@ -281,7 +321,7 @@ class FeatureController(base_engine.FeatureController):
         Subclasses may have more specific grants. For example, classes may automatically grant certain features at specific levels.
 
         """
-        previous_ranks = self._effective_ranks
+        previous_ranks = self._effective_ranks or 0
         self._effective_ranks = min(
             self._granted_ranks + self.purchased_ranks, self.definition.max_ranks
         )
@@ -381,7 +421,7 @@ class ClassController(FeatureController):
         return self.character.model.classes.get(self.id, 0)
 
     @purchased_ranks.setter
-    def purchased_ranks(self, value):
+    def purchased_ranks(self, value: int):
         self.character.model.classes[self.full_id] = value
 
     def can_increase(self, value: int = 1) -> Decision:
@@ -537,6 +577,48 @@ class SkillController(FeatureController):
                 options[controller.option] = controller.value
         return options
 
+    @property
+    def cp_cost(self) -> int:
+        return self.cost_for(self.paid_ranks)
+
+    def cost_for(self, ranks: int) -> int:
+        match self.definition.cost:
+            case int():
+                return self.definition.cost * ranks
+            case defs.CostByRank():
+                return self.definition.cost.total_cost(ranks)
+            case _:
+                raise NotImplementedError(
+                    f"Don't know how to compute cost with {self.definition.cost}"
+                )
+
+    def max_rank_increase(self, available_cp: int = -1) -> int:
+        if available_cp < 0:
+            available_cp = self.character.cp.value
+        available_ranks = self.definition.max_ranks - self.value
+        current_cost = self.cp_cost
+        if available_ranks < 1:
+            return 0
+        match self.definition.cost:
+            case int():
+                # Relatively trivial case
+                return math.floor(available_cp / self.definition.cost)
+            case defs.CostByRank():
+                while available_ranks > 0:
+                    cp_delta = (
+                        self.cost_for(self.paid_ranks + available_ranks) - current_cost
+                    )
+                    if cp_delta <= available_cp:
+                        return available_ranks
+                    available_ranks -= 1
+                return 0
+            case None:
+                return available_ranks
+            case _:
+                raise NotImplementedError(
+                    f"Don't know how to compute cost with {self.definition.cost}"
+                )
+
     def can_increase(self, value: int) -> Decision:
         if value <= 0:
             return _MUST_BE_POSITIVE
@@ -555,7 +637,14 @@ class SkillController(FeatureController):
         if not (rd := self.character.meets_requirements(self.definition.requires)):
             return rd
         # Can the character afford the purchase?
-        # TODO
+        current_cp = self.character.cp
+        cp_delta = self.cost_for(self.paid_ranks + value) - self.cp_cost
+        if current_cp < cp_delta:
+            return Decision(
+                success=False,
+                reason=f"Need {cp_delta} CP to purchase, but only have {current_cp}",
+                amount=self.max_rank_increase(current_cp.value),
+            )
         # Is this an option skill without an option specified?
         if self.is_option_skill and not self.option:
             return Decision(success=False, needs_option=True)
@@ -658,6 +747,20 @@ class SumAttribute(base_engine.AttributeController):
             ) > current:
                 current = v
         return current
+
+
+class CharacterPointController(base_engine.AttributeController):
+    character: TempestCharacter
+
+    @property
+    def value(self) -> int:
+        base = self.character.awarded_cp + self.character.base_cp
+        spent: int = 0
+        flaw_cp: int = 0
+
+        for skill in self.character.skills.values():
+            spent += skill.cp_cost
+        return base + flaw_cp - spent
 
 
 class TempestEngine(base_engine.Engine):

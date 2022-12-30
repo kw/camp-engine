@@ -5,54 +5,69 @@ import pathlib
 import pytest
 
 from camp.engine import loader
-from camp.engine.rules.base_engine import CharacterController
 from camp.engine.rules.base_engine import Engine
 from camp.engine.rules.base_models import Purchase
+from camp.engine.rules.tempest.engine import TempestCharacter
+from camp.engine.rules.tempest.engine import TempestEngine
 
 EXAMPLES = pathlib.Path(__file__).parent.parent.parent / "examples"
 GEASTEST = EXAMPLES / "geastest"
 
 
 @pytest.fixture
-def engine() -> Engine:
-    return loader.load_ruleset(GEASTEST).engine
+def engine() -> TempestEngine:
+    engine = loader.load_ruleset(GEASTEST).engine
+    if not isinstance(engine, TempestEngine):
+        raise Exception("Example ruleset does not specify expected engine")
+    return engine
 
 
 @pytest.fixture
-def character(engine: Engine) -> CharacterController:
+def character(engine: Engine) -> TempestCharacter:
     return engine.new_character()
 
 
-def test_add_basic_skill(character: CharacterController):
+def test_add_basic_skill(character: TempestCharacter):
     assert character.can_purchase("basic-skill")
     assert character.purchase("basic-skill")
     assert character.meets_requirements("basic-skill")
 
 
-def test_remove_skill(character: CharacterController):
+def test_basic_cp_math(character: TempestCharacter):
+    # Starting CP is 1 + 2*Level
+    assert character.cp.value == 5
+    # If we add some CP...
+    character.awarded_cp = 5
+    assert character.cp.value == 10
+    # If we spend CP (basic-skill costs 1 CP)
+    character.purchase("basic-skill")
+    assert character.cp.value == 9
+    # Purchase more ranks...
+    assert character.purchase("basic-skill:9")
+    assert character.cp.value == 0
+    # Can't purchase any more due to CP cost
+    assert not character.can_purchase("basic-skill")
+
+
+def test_remove_skill(character: TempestCharacter):
     character.purchase("basic-skill")
     assert character.can_purchase("basic-skill:-1")
     assert character.purchase("basic-skill:-1")
     assert not character.meets_requirements("basic-skill")
 
 
-def test_add_basic_feature_twice(character: CharacterController):
-    character.purchase("basic-skill")
-    assert not character.can_purchase("basic-skill")
-    assert not character.purchase("basic-skill")
-
-
-def test_one_requirement_missing(character: CharacterController):
+def test_one_requirement_missing(character: TempestCharacter):
     assert not character.can_purchase("one-requirement")
     assert not character.purchase("one-requirement")
 
 
-def test_two_requirements_missing(character: CharacterController):
+def test_two_requirements_missing(character: TempestCharacter):
     assert not character.can_purchase("two-requirements")
     assert not character.purchase("two-requirements")
 
 
-def test_two_requirements_met(character: CharacterController):
+def test_two_requirements_met(character: TempestCharacter):
+    character.awarded_cp = 25
     assert character.purchase("basic-skill")
     assert character.purchase("one-requirement")
     assert not character.can_purchase("two-requirements")
@@ -60,14 +75,22 @@ def test_two_requirements_met(character: CharacterController):
     assert character.purchase("two-requirements")
 
 
-def test_one_requirement_met(character: CharacterController):
+def test_two_requirements_met_via_grant(character: TempestCharacter):
+    character.awarded_cp = 9
+    character.purchase("basic-skill")
+    character.purchase("one-requirement")
+    character.purchase("grants-skill")
+    assert character.purchase("two-requirements")
+
+
+def test_one_requirement_met(character: TempestCharacter):
     character.purchase("basic-skill")
     assert character.can_purchase("one-requirement")
     assert character.purchase("one-requirement")
 
 
 @pytest.mark.xfail
-def test_remove_requirement(character: CharacterController):
+def test_remove_requirement(character: TempestCharacter):
     """You can't sell back a skill if another skill depends on it."""
     character.purchase("basic-skill")
     character.purchase("one-requirement")
@@ -75,35 +98,35 @@ def test_remove_requirement(character: CharacterController):
     assert not character.purchase("basic-skill:-1")
 
 
-def test_erroneous_option_provided(character: CharacterController):
+def test_erroneous_option_provided(character: TempestCharacter):
     """Skill can't be added with an option if it does not define options."""
     entry = Purchase(id="basic-skill", option="Foo")
     assert not character.can_purchase(entry)
     assert not character.purchase(entry)
 
 
-def test_option_values_required_freeform_prohibited(character: CharacterController):
+def test_option_values_required_freeform_prohibited(character: TempestCharacter):
     """If a skill option requires values, the option must be in that list."""
     entry = Purchase(id="specific-options", option="Fifty Two")
     assert not character.can_purchase(entry)
     assert not character.purchase(entry)
 
 
-def test_option_values_required_freeform_allowed(character: CharacterController):
+def test_option_values_required_freeform_allowed(character: TempestCharacter):
     """If a skill option requires values, the option must be in that list."""
     entry = Purchase(id="free-text", option="Fifty Two")
     assert character.can_purchase(entry)
     assert character.purchase(entry)
 
 
-def test_option_values_provided(character: CharacterController):
+def test_option_values_provided(character: TempestCharacter):
     """If a skill option requires values, an option from that list works."""
     entry = Purchase(id="specific-options", option="Two")
     assert character.can_purchase(entry)
     assert character.purchase(entry)
 
 
-def test_option_single_allowed(character: CharacterController):
+def test_option_single_allowed(character: TempestCharacter):
     """If a skill allows an option but does not allow multiple selection...
 
     Only accept a single skill entry for it.
@@ -115,7 +138,7 @@ def test_option_single_allowed(character: CharacterController):
     assert not character.can_purchase("single-option#Paper")
 
 
-def test_option_values_flag(character: CharacterController):
+def test_option_values_flag(character: TempestCharacter):
     """If a skill with a value option specifies a values flag, additional legal values
     can be passed in via that metadata flag.
     """
@@ -125,7 +148,7 @@ def test_option_values_flag(character: CharacterController):
     assert character.purchase(entry)
 
 
-def test_multiple_option_skill_without_option(character: CharacterController):
+def test_multiple_option_skill_without_option(character: TempestCharacter):
     """If a multiple-purchase skill (no freeform) requires an option,
 
     1) can_add_feature returns true if it isn't given an option, but
@@ -149,14 +172,17 @@ def test_multiple_option_skill_without_option(character: CharacterController):
     assert options == {"One": 1, "Two": 1, "Three": 1}
 
 
-def test_skill_with_one_grant(character: CharacterController):
+def test_skill_with_one_grant(character: TempestCharacter):
+    initial_cp = character.cp.value
     assert character.can_purchase("grants-skill")
     assert character.purchase("grants-skill")
+    # grants-skill costs 4 CP
+    assert initial_cp - character.cp.value == 4
     assert character.meets_requirements("grants-skill")
     assert character.meets_requirements("granted-skill")
 
 
-def test_skill_with_one_grant_sellback(character: CharacterController):
+def test_skill_with_one_grant_sellback(character: TempestCharacter):
     character.purchase("grants-skill")
     assert character.meets_requirements("granted-skill")
     assert character.purchase("grants-skill:-1")
