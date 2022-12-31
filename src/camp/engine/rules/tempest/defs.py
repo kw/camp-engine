@@ -43,7 +43,7 @@ class ClassDef(BaseFeatureDef):
     level_table_columns: dict[str, dict]
     levels: dict[int, dict]
     # By default, classes have 10 levels.
-    max_ranks: int = 10
+    ranks: int = 10
 
     def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
         super().post_validate(ruleset)

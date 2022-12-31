@@ -209,6 +209,13 @@ class FeatureController(PropertyController):
     def definition(self) -> base_models.BaseFeatureDef:
         return self.character.engine.feature_defs[self.expr.prop]
 
+    @property
+    def max_ranks(self) -> int:
+        if self.definition.ranks == "unlimited":
+            # Arbitrarily chosen large int.
+            return 101
+        return self.definition.ranks
+
     def can_increase(self, value: int) -> Decision:
         return Decision.UNSUPPORTED
 
