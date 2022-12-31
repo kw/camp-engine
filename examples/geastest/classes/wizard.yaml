@@ -24,11 +24,11 @@ levels:
   7: {spikes: 1, prepared: 8, cantrips: 2, spells: [6, 1], cp: 12}
 ---
 id: starting-feature-a
-type: classfeature
+type: subfeature
 name: Starting Feature A
 description: It's a cool feature, but for arcane casters
 ---
 id: multiclass-feature-a
-type: classfeature
+type: subfeature
 name: Multiclass Feature A
 description: It's a less cool feature, but for arcane casters

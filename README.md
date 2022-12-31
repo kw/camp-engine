@@ -44,7 +44,7 @@ Slots are a means of granting features outside of using currencies to buy them. 
 Fighter class might have a special feature at some level that grants your choice of three specific options,
 which might be something generic like "+1 damage against beasts", "the Heavy Armor skill", or "any single
 weapon proficiency skill". While Slots are a less prominent concept than Features or Currencies, they require
-some though. Depending on the system and the slot in question, you may have to consider things like: what happens
+some thought. Depending on the system and the slot in question, you may have to consider things like: what happens
 if this slot only grants Feature X, but the character already has it? Does it do nothing, refund the original
 cost, or allow selection of some equivalent feature? These are considerations that will either need to be baked
 into your particular rules engine or specified in some way for each slot that could trigger it.

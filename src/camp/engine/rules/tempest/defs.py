@@ -24,9 +24,9 @@ class BaseFeatureDef(base_models.BaseFeatureDef):
     grants: Grantable | None = None
 
 
-class ClassFeatureDef(BaseFeatureDef):
-    type: Literal["classfeature"] = "classfeature"
-    class_: str | None = Field(alias="class", default=None)
+class SubFeatureDef(BaseFeatureDef):
+    type: Literal["subfeature"] = "subfeature"
+    parent: str | None = None
 
     def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
         super().post_validate(ruleset)
@@ -123,7 +123,7 @@ class PowerDef(BaseFeatureDef):
         ruleset.validate_identifiers(_grantable_identifiers(self.grants))
 
 
-FeatureDefinitions: TypeAlias = ClassDef | ClassFeatureDef | SkillDef | PowerDef
+FeatureDefinitions: TypeAlias = ClassDef | SubFeatureDef | SkillDef | PowerDef
 
 
 class AttributeScaling(base_models.BaseModel):
