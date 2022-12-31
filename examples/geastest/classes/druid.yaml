@@ -21,11 +21,11 @@ levels:
   7: {prepared: 7, spells: [6, 1]}
 ---
 name: Starting Feature B
-type: classfeature
+type: subfeature
 id: starting-feature-b
 description: It's a cool feature, but for divine casters
 ---
 name: Multiclass Feature B
-type: classfeature
+type: subfeature
 id: multiclass-feature-b
 description: It's a less cool feature, but for divine casters
