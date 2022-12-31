@@ -1,0 +1,15 @@
+name: Lore
+cost: 2
+ranks: unlimited
+multiple: true
+option:
+  freeform: true
+  values:
+    - Arcane
+    - Historical
+    - Nature
+    - Noble
+    - Planar
+    - Religious
+    - Shadow
+    - Undead
