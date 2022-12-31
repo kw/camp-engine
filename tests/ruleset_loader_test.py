@@ -11,6 +11,7 @@ from camp.engine import utils
 BASEDIR = pathlib.Path(__file__).parent.parent
 PATH_PARAMS = [
     pytest.param(BASEDIR / "examples" / "geastest", id="geastest"),
+    pytest.param(BASEDIR / "tempest", id="tempest"),
 ]
 
 FAIL_TEMPLATE = """
