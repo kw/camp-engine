@@ -286,7 +286,7 @@ class FeatureController(base_engine.FeatureController):
         grants are revoked in the future due to an undo, a sellback, a class level swap, etc.
         """
         total = self.purchased_ranks + self.granted_ranks
-        max_ranks = self.definition.max_ranks
+        max_ranks = self.max_ranks
         if total <= max_ranks:
             return self.purchased_ranks
         # The feature is at maximum. Only pay for ranks that haven't been granted.
@@ -323,7 +323,7 @@ class FeatureController(base_engine.FeatureController):
         """
         previous_ranks = self._effective_ranks or 0
         self._effective_ranks = min(
-            self._granted_ranks + self.purchased_ranks, self.definition.max_ranks
+            self._granted_ranks + self.purchased_ranks, self.max_ranks
         )
 
         if previous_ranks <= 0 and self._effective_ranks > 0:
@@ -428,7 +428,7 @@ class ClassController(FeatureController):
         if value <= 0:
             return _MUST_BE_POSITIVE
         character_available = self.character.levels_available
-        class_available = self.definition.max_ranks - self.value
+        class_available = self.max_ranks - self.value
         available = min(character_available, class_available)
         return Decision(success=available >= value, amount=available)
 
@@ -595,14 +595,16 @@ class SkillController(FeatureController):
     def max_rank_increase(self, available_cp: int = -1) -> int:
         if available_cp < 0:
             available_cp = self.character.cp.value
-        available_ranks = self.definition.max_ranks - self.value
+        available_ranks = self.max_ranks - self.value
         current_cost = self.cp_cost
         if available_ranks < 1:
             return 0
         match self.definition.cost:
             case int():
                 # Relatively trivial case
-                return math.floor(available_cp / self.definition.cost)
+                return min(
+                    available_ranks, math.floor(available_cp / self.definition.cost)
+                )
             case defs.CostByRank():
                 while available_ranks > 0:
                     cp_delta = (
@@ -612,8 +614,6 @@ class SkillController(FeatureController):
                         return available_ranks
                     available_ranks -= 1
                 return 0
-            case None:
-                return available_ranks
             case _:
                 raise NotImplementedError(
                     f"Don't know how to compute cost with {self.definition.cost}"
@@ -623,14 +623,14 @@ class SkillController(FeatureController):
         if value <= 0:
             return _MUST_BE_POSITIVE
         current = self.value
-        if current >= self.definition.max_ranks:
+        if current >= self.definition.ranks:
             return Decision(success=False)
         # Is the purchase within defined range?
-        if (current + value) > self.definition.max_ranks:
-            max_increase = self.definition.max_ranks - current
+        if (current + value) > self.definition.ranks:
+            max_increase = self.definition.ranks - current
             return Decision(
                 success=False,
-                reason=f"Max is {self.definition.max_ranks}, so can't increase to {current + value}",
+                reason=f"Max is {self.definition.ranks}, so can't increase to {current + value}",
                 amount=max_increase,
             )
         # Does the character meet the prerequisites?

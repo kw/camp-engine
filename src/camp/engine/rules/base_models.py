@@ -8,6 +8,7 @@ from abc import abstractmethod
 from typing import Any
 from typing import ClassVar
 from typing import Iterable
+from typing import Literal
 from typing import Type
 from typing import TypeAlias
 from uuid import uuid4
@@ -301,7 +302,7 @@ class BaseFeatureDef(BaseModel):
     def_path: str | None = None
     tags: set[str] = pydantic.Field(default_factory=set)
     description: str | None = None
-    max_ranks: int = 1
+    ranks: int | Literal["unlimited"] = 1
     option: OptionDef | None = None
     multiple: bool = False
 

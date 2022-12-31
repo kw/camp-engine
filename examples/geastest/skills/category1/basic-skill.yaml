@@ -1,5 +1,5 @@
 name: Basic Skill
 cost: 1
-max_ranks: 20
+ranks: 20
 description: >
   A skill with no requirements, effects, or anything else special about it.
