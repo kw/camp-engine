@@ -279,19 +279,24 @@ class OptionDef(BaseModel):
             be presented with these values. If `freeform` is
             also specified, the list will have an "Other..." option
             that allows freeform entry.
-        values_flag: If provided, names a flag that might appear in the
+        flag: If provided, names a flag that might appear in the
             character's metadata, which should be a list of strings.
             Values in this list are added to the provided values list
             unless they are prefixed with "-", in which case they signal
             the value should be removed. This allows staff to potentially
             add or remove values in the default ruleset for the playerbase
             or a specific character without needing to edit the ruleset.
+        inherit: If provided, specifies the ID of another feature that has
+            options. The options available to this feature are limited to
+            options taken in the chosen feature.
+            Should not be specified with `freeform`, `values`, `flag`, etc.
     """
 
     short: bool = True
     freeform: bool = False
     values: set[str] | None = None
-    values_flag: str | None = None
+    flag: str | None = None
+    inherit: str | None = None
 
 
 class BaseFeatureDef(BaseModel):

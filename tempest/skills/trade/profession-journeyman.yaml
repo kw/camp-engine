@@ -1,30 +1,10 @@
 name: Profession - Journeyman
 cost: 1
 # TODO(#16): Add tracking to record the income
-requires: profession-apprentice#?
+requires: profession-apprentice
 multiple: true
 option:
-  values:
-    - Soldier
-    - Hunter
-    - Sailor
-    - Wagoneer
-    - Factor
-    - Mercenary
-    - Builder
-    - Fisher
-    - Scribe
-    - Herbalist
-    - Undertaker
-    - Executioner
-    - Merchant
-    - Charlatan
-    - Chiurgion
-    - Teacher
-    - Demon Hunter
-    - Famulus
-    - Magistrate
-  values_flag: Professions
+  inherit: profession-apprentice
 description: >
   The character has functional knowledge in a profession.
   The character can perform all normal functions of the chosen
