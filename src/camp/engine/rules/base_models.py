@@ -279,6 +279,11 @@ class OptionDef(BaseModel):
             be presented with these values. If `freeform` is
             also specified, the list will have an "Other..." option
             that allows freeform entry.
+        requires: If provided, a mapping of option values to requirements.
+            Requirements are specified in the same way as for features. The
+            listed requirements must be met to choose the indicated option.
+            If an option does not appear in this mapping (for example, if it
+            comes from the `flag` set) then no requirements are assumed.
         flag: If provided, names a flag that might appear in the
             character's metadata, which should be a list of strings.
             Values in this list are added to the provided values list
@@ -295,6 +300,7 @@ class OptionDef(BaseModel):
     short: bool = True
     freeform: bool = False
     values: set[str] | None = None
+    requires: dict[str, Requirements] | None = None
     flag: str | None = None
     inherit: str | None = None
 

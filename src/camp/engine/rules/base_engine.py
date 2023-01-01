@@ -149,6 +149,18 @@ class CharacterController(ABC):
                         legal_values.add(value)
 
         legal_values ^= options_excluded
+
+        # An option definition can specify requirements for each option. If a
+        # requirement is specified and not met, remove it from the set.
+        if option_def.requires:
+            unmet = set()
+            for option in legal_values:
+                if option in option_def.requires:
+                    req = option_def.requires[option]
+                    if not self.meets_requirements(req):
+                        unmet.add(option)
+            legal_values ^= unmet
+
         return legal_values
 
     def option_satisfies_definition(
