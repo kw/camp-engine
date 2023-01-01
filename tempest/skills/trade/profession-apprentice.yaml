@@ -23,7 +23,7 @@ option:
     - Demon Hunter
     - Famulus
     - Magistrate
-  values_flag: Professions
+  flag: Professions
 description: >
   The character has some basic knowledge in a profession and can generally perform in that
   profession on basic tasks without journeyman or master supervision. More complex tasks may

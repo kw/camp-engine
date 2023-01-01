@@ -2,7 +2,7 @@ name: Specific Options
 multiple: true
 option:
   values: [One, Two, Three]
-  values_flag: More Specific Options
+  flag: More Specific Options
 ranks: 10
 cost: 1
 description: >

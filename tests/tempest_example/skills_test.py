@@ -172,6 +172,60 @@ def test_multiple_option_skill_without_option(character: TempestCharacter):
     assert options == {"One": 1, "Two": 1, "Three": 1}
 
 
+def test_inherited_option_skill(character: TempestCharacter):
+    """A feature with an inherited option specified can only take values for
+    that option if the option has already been taken for the inherited feature.
+
+    i.e. you can't take "Profession - Journeyman [Fisherman]" without having taken
+    "Profession - Apprentice [Fisherman]".
+    """
+    assert not character.can_purchase("inherited-option#One")
+
+    character.purchase("specific-options#One")
+    character.purchase("specific-options#Two")
+
+    assert character.can_purchase("inherited-option").needs_option
+    assert character.options_values_for_feature(
+        "inherited-option", exclude_taken=True
+    ) == {"One", "Two"}
+    assert character.can_purchase("inherited-option#One")
+    assert character.purchase("inherited-option#One")
+    assert character.options_values_for_feature(
+        "inherited-option", exclude_taken=True
+    ) == {"Two"}
+    assert character.purchase("inherited-option#Two")
+
+    # After purchasing all available options, the skill no longer registers as purchasable
+    rd = character.can_purchase("inherited-option")
+    assert not rd.success
+    assert not rd.needs_option
+
+
+def test_inherited_option_with_ranks(character: TempestCharacter):
+    """If the inherited option feature is specified with a rank value, values from that feature
+    are only valid choices if they have that many ranks.
+    """
+    character.awarded_cp = 5
+    character.purchase("specific-options#One")
+    character.purchase("specific-options#Two:4")
+
+    assert character.can_purchase("inherited-with-ranks").needs_option
+    assert character.options_values_for_feature(
+        "inherited-with-ranks", exclude_taken=True
+    ) == {"Two"}
+    assert not character.can_purchase("inherited-with-ranks#One")
+    assert character.can_purchase("inherited-with-ranks#Two")
+    assert not character.purchase("inherited-with-ranks#One")
+    assert character.purchase("inherited-with-ranks#Two")
+    assert not character.options_values_for_feature(
+        "inherited-with-ranks", exclude_taken=True
+    )
+
+    rd = character.can_purchase("inherited-with-ranks")
+    assert not rd.success
+    assert not rd.needs_option
+
+
 def test_skill_with_one_grant(character: TempestCharacter):
     initial_cp = character.cp.value
     assert character.can_purchase("grants-skill")

@@ -111,7 +111,7 @@ class CharacterController(ABC):
         """
         feature_def = self.engine.feature_defs[feature_id]
         option_def = feature_def.option
-        if not option_def.values:
+        if not (option_def.values or option_def.inherit):
             return set()
         options_excluded: set[str] = set()
         if exclude_taken and (taken_options := self.get_options(feature_id)):
@@ -121,21 +121,32 @@ class CharacterController(ABC):
                 return set()
             options_excluded = set(taken_options.keys())
 
-        legal_values = set(option_def.values)
-        if option_def.values_flag:
-            # If a values flag is specified, check the character metadata to
-            # see if additional legal values are provided. This will probably
-            # be a list of strings, but handle other things as well. If a
-            # value in the list is prefixed with "-" it is removed from the
-            # legal value set.
-            extra_values = self.model.metadata.flags.get(option_def.values_flag, [])
-            if not isinstance(extra_values, list):
-                extra_values = [extra_values]
-            for value in (str(v) for v in extra_values):
-                if value.startswith("-"):
-                    legal_values.remove(value[1:])
-                else:
-                    legal_values.add(value)
+        if option_def.inherit:
+            expr = base_models.PropExpression.parse(option_def.inherit)
+            legal_values = set(self.get_options(expr.prop))
+            # If expr has a value specified, the only legal options are the
+            # ones that meet this requirement.
+            if expr.value:
+                for option in legal_values.copy():
+                    req = expr.copy(update={"option": option})
+                    if not req.evaluate(self):
+                        legal_values.remove(option)
+        else:
+            legal_values = set(option_def.values)
+            if option_def.flag:
+                # If a values flag is specified, check the character metadata to
+                # see if additional legal values are provided. This will probably
+                # be a list of strings, but handle other things as well. If a
+                # value in the list is prefixed with "-" it is removed from the
+                # legal value set.
+                extra_values = self.model.metadata.flags.get(option_def.flag, [])
+                if not isinstance(extra_values, list):
+                    extra_values = [extra_values]
+                for value in (str(v) for v in extra_values):
+                    if value.startswith("-"):
+                        legal_values.remove(value[1:])
+                    else:
+                        legal_values.add(value)
 
         legal_values ^= options_excluded
         return legal_values
