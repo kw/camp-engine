@@ -226,6 +226,29 @@ def test_inherited_option_with_ranks(character: TempestCharacter):
     assert not rd.needs_option
 
 
+def test_skill_with_option_requirements(character: TempestCharacter):
+    character.awarded_cp = 5
+    assert not character.options_values_for_feature("requires-option")
+
+    character.purchase("basic-skill")
+    assert character.options_values_for_feature("requires-option") == {"One"}
+    assert character.can_purchase("requires-option#One")
+    assert not character.can_purchase("requires-option#Two")
+
+    character.purchase("basic-skill")
+    assert character.options_values_for_feature("requires-option") == {"One", "Two"}
+    assert character.can_purchase("requires-option#Two")
+    assert not character.can_purchase("requires-option#Three")
+
+    character.purchase("basic-skill")
+    assert character.options_values_for_feature("requires-option") == {
+        "One",
+        "Two",
+        "Three",
+    }
+    assert character.purchase("requires-option#Three")
+
+
 def test_skill_with_one_grant(character: TempestCharacter):
     initial_cp = character.cp.value
     assert character.can_purchase("grants-skill")
