@@ -1,6 +1,6 @@
 # Just like Inherited Option, but this one requires more than just taking the option.
 #
-name: Inerhited With Ranks
+name: Inherited With Ranks
 cost: 1
 multiple: true
 option:
