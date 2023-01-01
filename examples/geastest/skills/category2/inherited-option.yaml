@@ -2,7 +2,7 @@
 # requirement with a matching option has been taken. For example,
 # to take "Profession - Journeyman [Charlatan]" you must first have
 # "Profession - Apprentice [Charlatan]".
-name: Inerhited Option
+name: Inherited Option
 cost: 1
 multiple: true
 option:
