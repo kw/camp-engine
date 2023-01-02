@@ -284,24 +284,15 @@ class OptionDef(BaseModel):
             listed requirements must be met to choose the indicated option.
             If an option does not appear in this mapping (for example, if it
             comes from the `flag` set) then no requirements are assumed.
-        flag: If provided, names a flag that might appear in the
-            character's metadata, which should be a list of strings.
-            Values in this list are added to the provided values list
-            unless they are prefixed with "-", in which case they signal
-            the value should be removed. This allows staff to potentially
-            add or remove values in the default ruleset for the playerbase
-            or a specific character without needing to edit the ruleset.
         inherit: If provided, specifies the ID of another feature that has
             options. The options available to this feature are limited to
             options taken in the chosen feature.
             Should not be specified with `freeform`, `values`, `flag`, etc.
     """
 
-    short: bool = True
     freeform: bool = False
     values: set[str] | None = None
     requires: dict[str, Requirements] | None = None
-    flag: str | None = None
     inherit: str | None = None
 
 
@@ -314,8 +305,10 @@ class BaseFeatureDef(BaseModel):
     tags: set[str] = pydantic.Field(default_factory=set)
     description: str | None = None
     ranks: int | Literal["unlimited"] = 1
-    option: OptionDef | None = None
+    option_def: OptionDef | None = pydantic.Field(default=None, alias="option")
     multiple: bool = False
+    accepts_description: bool = False
+    description_prompt: str | None = None
 
     @classmethod
     def default_name(cls) -> str:
@@ -327,6 +320,19 @@ class BaseFeatureDef(BaseModel):
     @classmethod
     def type_key(cls) -> str:
         return cls.__fields__["type"].type_.__args__[0]
+
+    @property
+    def option(self) -> OptionDef | None:
+        """Produces the option definition.
+
+        Defined as a property so that subclasses may have 'inferred' options that
+        they calculate by other means.
+        """
+        return self.option_def
+
+    @option.setter
+    def option(self, value: OptionDef | None):
+        self.option_def = value
 
     def post_validate(self, ruleset: BaseRuleset) -> None:
         self.requires = parse_req(self.requires)
@@ -360,12 +366,13 @@ class BaseRuleset(BaseModel, ABC):
     engine_class: str
     features: dict[str, BaseFeatureDef] = pydantic.Field(default_factory=dict)
     bad_defs: list[BadDefinition] = pydantic.Field(default_factory=list)
+    default_flags: dict[str, FlagValues] = pydantic.Field(default_factory=dict)
 
     name_overrides: dict[str, str] = pydantic.Field(default_factory=dict)
     _display_names: dict[str, str] = pydantic.PrivateAttr(default_factory=dict)
     attributes: ClassVar[Iterable[Attribute]] = []
 
-    def __init__(self, **data):
+    def __init__(self, **data) -> None:
         super().__init__(**data)
         # Compute the display names for each type. If not specified, the
         # feature type has a built-in default, usualy based on the
@@ -374,7 +381,7 @@ class BaseRuleset(BaseModel, ABC):
         # as the type field, the default name will be 'Skill'.
         f: BaseFeatureDef
         for f in self.feature_model_types().__args__:
-            key = f.type_key
+            key = f.type_key()
             self._display_names[key] = self.name_overrides.get(key, f.default_name())
         # The name override list can also include names for attributes and such,
         # so copy the rest of it over.

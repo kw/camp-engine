@@ -705,6 +705,53 @@ class SkillController(FeatureController):
         self.character._skills[self.full_id] = self
 
 
+class FlawController(FeatureController):
+    definition: defs.FlawDef
+
+    def __init__(self, full_id: str, character: TempestCharacter):
+        super().__init__(full_id, character)
+        if not isinstance(self.definition, defs.FlawDef):
+            raise ValueError(
+                f"Expected {full_id} to be a flaw, but was {type(self.definition)}"
+            )
+
+    @property
+    def option(self) -> str | None:
+        return self.expression.option
+
+    @cached_property
+    def award_options(self) -> dict[str, int] | None:
+        if not isinstance(self.definition.award_def, dict):
+            return None
+        award_dict: dict[str, int] = {}
+        flags_to_eval: dict[str, int] = {}
+        for option, value in self.definition.award_def.items():
+            if not option.startswith("$"):
+                award_dict[option] = value
+            else:
+                flags_to_eval[option[1:]] = value
+        for flag, value in flags_to_eval.items():
+            for f in utils.maybe_iter(self.character.flags.get(flag, [])):
+                if not isinstance(f, str):
+                    f = str(f)
+                # Negative flag. Remove from awards *if* it has the matching value.
+                if f.startswith("-"):
+                    f = f[1:]
+                    if f in award_dict and award_dict[f] == value:
+                        del award_dict[f]
+                else:
+                    award_dict[f] = value
+        return award_dict
+
+    @cached_property
+    def hypothetical_award_value(self) -> int:
+        """Amount of CP that would be awarded, assuming this flaw was taken at character creation."""
+        if isinstance(self.definition.award_def, int):
+            return self.definition.award_def
+
+        return self.award_options.get(self.option, 0)
+
+
 class SumAttribute(base_engine.AttributeController):
     """Represents an attribute that aggregates over particular types of features.
 

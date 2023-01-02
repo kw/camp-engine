@@ -72,6 +72,20 @@ class CharacterController(ABC):
                 return attr.default_value
         return 0
 
+    @cached_property
+    def flags(self) -> dict[str, base_models.FlagValues]:
+        flags = self.ruleset.default_flags.copy()
+        for f, value in self.model.metadata.flags.items():
+            if f not in flags:
+                flags[f] = value
+            elif isinstance(value, list) or isinstance(flags[f], list):
+                # Coerce both to lists and combine
+                flags[f] = list(maybe_iter(flags[f])) + list(maybe_iter(value))
+            else:
+                # Both are scalar. Overwrite.
+                flags[f] = value
+        return flags
+
     def get_options(self, expr: str) -> dict[str, int]:
         """Retrieves the options (and their values) for a particular property or feature."""
         return {}
@@ -121,6 +135,10 @@ class CharacterController(ABC):
                 return set()
             options_excluded = set(taken_options.keys())
 
+        # If needed, option requirements can be specified in terms of flags.
+        # This dict keeps track of which options come from which flags.
+        option_source: dict[str, str] = {}
+
         if option_def.inherit:
             expr = base_models.PropExpression.parse(option_def.inherit)
             legal_values = set(self.get_options(expr.prop))
@@ -133,20 +151,18 @@ class CharacterController(ABC):
                         legal_values.remove(option)
         else:
             legal_values = set(option_def.values)
-            if option_def.flag:
-                # If a values flag is specified, check the character metadata to
-                # see if additional legal values are provided. This will probably
-                # be a list of strings, but handle other things as well. If a
-                # value in the list is prefixed with "-" it is removed from the
-                # legal value set.
-                extra_values = self.model.metadata.flags.get(option_def.flag, [])
-                if not isinstance(extra_values, list):
-                    extra_values = [extra_values]
-                for value in (str(v) for v in extra_values):
-                    if value.startswith("-"):
-                        legal_values.remove(value[1:])
-                    else:
-                        legal_values.add(value)
+            for option in legal_values.copy():
+                if option.startswith("$"):
+                    legal_values.remove(option)
+                    flag = option[1:]
+                    extra_values = self.flags.get(flag, [])
+                    str_values: list[str] = [str(ev) for ev in maybe_iter(extra_values)]
+                    additions = {ev for ev in str_values if not ev.startswith("-")}
+                    removals = {ev for ev in str_values if ev.startswith("-")}
+                    for value in additions:
+                        option_source[value] = option
+                    legal_values ^= removals
+                    legal_values |= additions
 
         legal_values ^= options_excluded
 
@@ -155,8 +171,16 @@ class CharacterController(ABC):
         if option_def.requires:
             unmet = set()
             for option in legal_values:
+                # Check if the option is specified explicitly in the requirements
                 if option in option_def.requires:
                     req = option_def.requires[option]
+                    if not self.meets_requirements(req):
+                        unmet.add(option)
+                # Check if the option is specified generally by its flag name
+                elif (
+                    source := option_source.get(option)
+                ) and source in option_def.requires:
+                    req = option_def.requires[source]
                     if not self.meets_requirements(req):
                         unmet.add(option)
             legal_values ^= unmet

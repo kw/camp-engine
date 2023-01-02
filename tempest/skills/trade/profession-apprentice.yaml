@@ -3,27 +3,7 @@ cost: 1
 # TODO(#16): Add tracking to record the income
 multiple: true
 option:
-  values:
-    - Soldier
-    - Hunter
-    - Sailor
-    - Wagoneer
-    - Factor
-    - Mercenary
-    - Builder
-    - Fisher
-    - Scribe
-    - Herbalist
-    - Undertaker
-    - Executioner
-    - Merchant
-    - Charlatan
-    - Chiurgion
-    - Teacher
-    - Demon Hunter
-    - Famulus
-    - Magistrate
-  flag: Professions
+  values: [$Professions]
 description: >
   The character has some basic knowledge in a profession and can generally perform in that
   profession on basic tasks without journeyman or master supervision. More complex tasks may

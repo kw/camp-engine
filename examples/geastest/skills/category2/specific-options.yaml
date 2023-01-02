@@ -1,8 +1,7 @@
 name: Specific Options
 multiple: true
 option:
-  values: [One, Two, Three]
-  flag: More Specific Options
+  values: [One, Two, Three, $More Specific Options]
 ranks: 10
 cost: 1
 description: >
