@@ -90,15 +90,42 @@ class CostByRank(base_models.BaseModel):
 
 class SkillDef(BaseFeatureDef):
     type: Literal["skill"] = "skill"
-    category: str = "General"
+    category: str = "General Skills"
     cost: int | CostByRank
     uses: int | None = None
-    option: base_models.OptionDef | None = None
     grants: Grantable = None
 
     def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
         super().post_validate(ruleset)
         ruleset.validate_identifiers(_grantable_identifiers(self.grants))
+
+
+class FlawDef(BaseFeatureDef):
+    """
+    Attributes:
+        award: A value or map of values that indicate the CP award to grant
+            for taking this flaw. Note that if a flaw is inflicted by plot,
+            it will generally provide no CP award, but the plot member should
+            still choose an appropriate award level since the flaw correction.
+            If a dictionary is specified, the keys are descriptive text that can
+            be selected from as though they were options. If the key begins with
+            a "$" character, the rest of the key is assumed to be a flag and will
+            be expanded.
+    """
+
+    type: Literal["flaw"] = "flaw"
+    category: str = "General Flaws"
+    award_def: int | dict[str, int] = Field(default=0, alias="award")
+
+    @property
+    def option(self) -> base_models.OptionDef:
+        if self.option_def:
+            return self.option_def
+        if isinstance(self.award_def, dict):
+            return base_models.OptionDef(
+                values=self.award.keys(),
+            )
+        return None
 
 
 class PowerDef(BaseFeatureDef):
@@ -123,7 +150,7 @@ class PowerDef(BaseFeatureDef):
         ruleset.validate_identifiers(_grantable_identifiers(self.grants))
 
 
-FeatureDefinitions: TypeAlias = ClassDef | SubFeatureDef | SkillDef | PowerDef
+FeatureDefinitions: TypeAlias = ClassDef | SubFeatureDef | SkillDef | PowerDef | FlawDef
 
 
 class AttributeScaling(base_models.BaseModel):
