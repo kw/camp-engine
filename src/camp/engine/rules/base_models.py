@@ -306,7 +306,7 @@ class BaseFeatureDef(BaseModel):
     description: str | None = None
     ranks: int | Literal["unlimited"] = 1
     option_def: OptionDef | None = pydantic.Field(default=None, alias="option")
-    multiple: bool = False
+    multiple: bool | int = False
 
     @classmethod
     def default_name(cls) -> str:
