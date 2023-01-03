@@ -51,7 +51,7 @@ def test_parse_req():
             all=[
                 "one",
                 "two",
-                "!three",
+                "-three",
             ]
         ),
         AnyOf(

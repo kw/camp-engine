@@ -27,11 +27,23 @@ class FlawModel(base_models.BaseModel):
     explained at more length in a backstory).
 
     We should be able to cover this with the following fields.
+
+    Attributes:
+      added_by_player: True if the player intentionally added it. False if plot added it
+         for plot reasons. If plot adds it at the player's request, it's reasonable to set
+         it to True. Either way, there's no mechanical effect, it's just for record keeping.
+      cp_awarded: True if the PC gets CP for this (but not over the flaw cap). Usually
+         only true if the player added it, but plot-granted flaws could also, I guess?
+      can_overcome: The player can choose to overcome the flaw at a cost. The flaw CP are lost,
+         and the player pays an additional 2 CP for this privilege.
+      overcame: True if the player has paid the overcome price. The model must remain to
+         represent the CP expenditure.
+      removed: True if plot has deactivated this flaw. Similar to overcome, but the player
+         doesn't pay anything, and (unless plot toggles cp_awarded) the granted CP remains.
     """
 
-    description: str | None = None
-    added_by_player: bool
-    cp_awarded: bool
+    added_by_player: bool = True
+    cp_awarded: bool = True
     can_overcome: bool = True
     overcame: bool = False
     removed: bool = False

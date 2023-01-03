@@ -42,3 +42,11 @@ name_overrides:
   cp: CP
   lp: LP
   breedcap: Max Breeds
+
+
+default_flags:
+  Option A:
+    - Foo
+    - Bar
+  Option B:
+    - Xyzzy

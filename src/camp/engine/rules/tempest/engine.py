@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from abc import abstractmethod
 from abc import abstractproperty
 from functools import cached_property
 from typing import Mapping
@@ -9,6 +8,7 @@ from typing import Mapping
 from camp.engine import utils
 
 from .. import base_engine
+from ..base_models import OptionDef
 from ..base_models import PropExpression
 from ..base_models import Purchase
 from ..decision import Decision
@@ -25,6 +25,7 @@ class TempestCharacter(base_engine.CharacterController):
     ruleset: defs.Ruleset
     _classes: dict[str, ClassController] | None = None
     _skills: dict[str, SkillController] | None = None
+    _flaws: dict[str, FlawController] | None = None
 
     @property
     def xp(self) -> int:
@@ -98,11 +99,11 @@ class TempestCharacter(base_engine.CharacterController):
         return True
 
     @cached_property
-    def cp(self) -> base_engine.AttributeController:
+    def cp(self) -> CharacterPointController:
         return CharacterPointController("cp", self)
 
     @cached_property
-    def level(self) -> base_engine.AttributeController:
+    def level(self) -> SumAttribute:
         return SumAttribute("level", self, "class")
 
     @property
@@ -147,6 +148,16 @@ class TempestCharacter(base_engine.CharacterController):
             skills[id] = SkillController(id, self)
         self._skills = skills
         return skills
+
+    @property
+    def flaws(self) -> dict[str, FlawController]:
+        if self._flaws:
+            return self._flaws
+        flaws: dict[str, FlawController] = {}
+        for id in self.model.flaws:
+            flaws[id] = FlawController(id, self)
+        self._flaws = flaws
+        return flaws
 
     def can_purchase(self, entry: Purchase | str) -> Decision:
         if not isinstance(entry, Purchase):
@@ -201,6 +212,7 @@ class TempestCharacter(base_engine.CharacterController):
         return {
             "class": self.classes,
             "skill": self.skills,
+            "flaw": self.flaws,
         }
 
     @cached_property
@@ -225,6 +237,8 @@ class TempestCharacter(base_engine.CharacterController):
                 return ClassController(id, self)
             case "skill":
                 return SkillController(id, self)
+            case "flaw":
+                return FlawController(id, self)
         raise NotImplementedError(
             f"Unknown feature controller {feature_type} for feature {id}"
         )
@@ -251,6 +265,7 @@ class TempestCharacter(base_engine.CharacterController):
         super().clear_caches()
         self._classes = {}
         self._skills = {}
+        self._flaws = {}
 
 
 class FeatureController(base_engine.FeatureController):
@@ -268,6 +283,18 @@ class FeatureController(base_engine.FeatureController):
         self.definition = character.ruleset.features[self.id]
         self._effective_ranks = None
         self._granted_ranks = 0
+
+    @cached_property
+    def feature_type(self) -> str:
+        return self.definition.type
+
+    @property
+    def option(self) -> str | None:
+        return self.expression.option
+
+    @property
+    def option_def(self) -> OptionDef | None:
+        return self.definition.option
 
     @abstractproperty
     def purchased_ranks(self) -> int:
@@ -299,13 +326,102 @@ class FeatureController(base_engine.FeatureController):
 
     @property
     def value(self) -> int:
+        if self.option_def and not self.option:
+            # This is an aggregate controller for the skill.
+            # Sum any ranks the character has in instances of it.
+            total: int = 0
+            for skill in self.character.model.skills:
+                if skill.startswith(f"{self.id}#"):
+                    # Note that we don't need to iterate over the keys in the
+                    # grants dictionary. If a grant is provided for a skill with
+                    # no ranks, we always add a 0 entry to the 'skills' dict for it
+                    # so that it always represents the skills on the sheet.
+                    if controller := self.character._controller_for_feature(
+                        PropExpression.parse(skill)
+                    ):
+                        total += controller.value
+            return total
         if self._effective_ranks is None:
             self.reconcile()
         return self._effective_ranks
 
-    @abstractmethod
+    @property
+    def max_value(self) -> int:
+        if self.option_def and not self.option:
+            # This is an aggregate controller for the skill.
+            # Return the value of the highest instance.
+            current: int = 0
+            for feat in self.character.features[self.feature_type]:
+                if feat.startswith(f"{self.id}#"):
+                    # Note that we don't need to iterate over the keys in the
+                    # grants dictionary. If a grant is provided for a skill with
+                    # no ranks, we always add a 0 entry to the 'skills' dict for it
+                    # so that it always represents the skills on the sheet.
+                    if controller := self.character._controller_for_feature(feat):
+                        new_value = controller.value
+                        if new_value > current:
+                            current = new_value
+            return current
+        return super().max_value
+
     def _link_to_character(self):
-        ...
+        self.character.features[self.definition.type][self.full_id] = self
+
+    def can_increase(self, value: int) -> Decision:
+        if value <= 0:
+            return _MUST_BE_POSITIVE
+        current = self.value
+        if current >= self.definition.ranks:
+            return Decision(success=False)
+        # Is the purchase within defined range?
+        if (current + value) > self.definition.ranks:
+            max_increase = self.definition.ranks - current
+            return Decision(
+                success=False,
+                reason=f"Max is {self.definition.ranks}, so can't increase to {current + value}",
+                amount=max_increase,
+            )
+        # Does the character meet the prerequisites?
+        if not (rd := self.character.meets_requirements(self.definition.requires)):
+            return rd
+        # Is this an option skill without an option specified?
+        if self.option_def and not self.option:
+            return Decision(success=False, needs_option=True)
+        elif (
+            self.option_def
+            and self.option
+            and not self.definition.option.freeform
+            and self.purchased_ranks == 0
+        ):
+            # The player is trying to buy a new option. Verify that it's legal.
+            options_available = self.character.options_values_for_feature(
+                self.id, exclude_taken=True
+            )
+            if self.option not in options_available:
+                return Decision(
+                    success=False,
+                    reason=f"'{self.option}' not a valid option for {self.id}",
+                )
+        # Is this a non-option skill and an option was specified anyway?
+        if not self.option_def and self.option:
+            return Decision(
+                success=False, reason=f"Feature {self.id} does not accept options."
+            )
+        return Decision.SUCCESS
+
+    def can_decrease(self, value: int) -> Decision:
+        if not self.character.can_respend:
+            return _NO_RESPEND
+        if value < 1:
+            return _MUST_BE_POSITIVE
+        purchases = self.purchased_ranks
+        if value > purchases:
+            return Decision(
+                success=False,
+                reason=f"Can't sell back {value} ranks when you've only purchased {purchases} ranks.",
+                amount=(value - purchases),
+            )
+        return Decision.SUCCESS
 
     def update_grants(self, delta: int) -> None:
         self._granted_ranks += delta
@@ -425,8 +541,8 @@ class ClassController(FeatureController):
         self.character.model.classes[self.full_id] = value
 
     def can_increase(self, value: int = 1) -> Decision:
-        if value <= 0:
-            return _MUST_BE_POSITIVE
+        if not (rd := super().can_increase(value)):
+            return rd
         character_available = self.character.levels_available
         class_available = self.max_ranks - self.value
         available = min(character_available, class_available)
@@ -455,10 +571,8 @@ class ClassController(FeatureController):
         return Decision(success=True, amount=self.value)
 
     def can_decrease(self, value: int = 1) -> Decision:
-        if not self.character.can_respend:
-            return _NO_RESPEND
-        if value <= 0:
-            return _MUST_BE_POSITIVE
+        if not (rd := super().can_decrease(value)):
+            return rd
         current = self.purchased_ranks
         # If this is the starting class, it can't be reduced below level 2
         # unless it's the only class on the sheet.
@@ -499,9 +613,6 @@ class ClassController(FeatureController):
         self.reconcile()
         return Decision(success=True, amount=self.value)
 
-    def _link_to_character(self):
-        self.character._classes[self.id] = self
-
 
 class SkillController(FeatureController):
     definition: defs.SkillDef
@@ -518,10 +629,6 @@ class SkillController(FeatureController):
         return self.expression.option
 
     @property
-    def is_option_skill(self) -> bool:
-        return self.definition.option is not None
-
-    @property
     def purchased_ranks(self) -> int:
         # Unlike `value`, we don't care about whether this is an option skill.
         # Raw option skills never have purchases.
@@ -533,7 +640,7 @@ class SkillController(FeatureController):
 
     @property
     def value(self) -> int:
-        if self.is_option_skill and not self.option:
+        if self.option_def and not self.option:
             # This is an aggregate controller for the skill.
             # Sum any ranks the character has in instances of it.
             total: int = 0
@@ -549,25 +656,6 @@ class SkillController(FeatureController):
                         total += controller.value
             return total
         return super().value
-
-    @property
-    def max_value(self) -> int:
-        if self.is_option_skill and not self.option:
-            # This is an aggregate controller for the skill.
-            # Return the value of the highest instance.
-            current: int = 0
-            for skill in self.character.model.skills:
-                if skill.startswith(f"{self.id}#"):
-                    # Note that we don't need to iterate over the keys in the
-                    # grants dictionary. If a grant is provided for a skill with
-                    # no ranks, we always add a 0 entry to the 'skills' dict for it
-                    # so that it always represents the skills on the sheet.
-                    if controller := self.character._controller_for_feature(skill):
-                        new_value = controller.value
-                        if new_value > current:
-                            current = new_value
-            return current
-        return super().max_value
 
     @property
     def taken_options(self) -> dict[str, int]:
@@ -620,21 +708,7 @@ class SkillController(FeatureController):
                 )
 
     def can_increase(self, value: int) -> Decision:
-        if value <= 0:
-            return _MUST_BE_POSITIVE
-        current = self.value
-        if current >= self.definition.ranks:
-            return Decision(success=False)
-        # Is the purchase within defined range?
-        if (current + value) > self.definition.ranks:
-            max_increase = self.definition.ranks - current
-            return Decision(
-                success=False,
-                reason=f"Max is {self.definition.ranks}, so can't increase to {current + value}",
-                amount=max_increase,
-            )
-        # Does the character meet the prerequisites?
-        if not (rd := self.character.meets_requirements(self.definition.requires)):
+        if not (rd := super().can_increase(value)):
             return rd
         # Can the character afford the purchase?
         current_cp = self.character.cp
@@ -644,29 +718,6 @@ class SkillController(FeatureController):
                 success=False,
                 reason=f"Need {cp_delta} CP to purchase, but only have {current_cp}",
                 amount=self.max_rank_increase(current_cp.value),
-            )
-        # Is this an option skill without an option specified?
-        if self.is_option_skill and not self.option:
-            return Decision(success=False, needs_option=True)
-        elif (
-            self.is_option_skill
-            and self.option
-            and not self.definition.option.freeform
-            and current == 0
-        ):
-            # The player is trying to buy a new option. Verify that it's legal.
-            options_available = self.character.options_values_for_feature(
-                self.id, exclude_taken=True
-            )
-            if self.option not in options_available:
-                return Decision(
-                    success=False,
-                    reason=f"'{self.option}' not a valid option for {self.id}",
-                )
-        # Is this a non-option skill and an option was specified anyway?
-        if not self.is_option_skill and self.option:
-            return Decision(
-                success=False, reason=f"Skill {self.id} does not accept options."
             )
         return Decision.SUCCESS
 
@@ -681,18 +732,6 @@ class SkillController(FeatureController):
         self.reconcile()
         return Decision(success=True, amount=self.value)
 
-    def can_decrease(self, value: int) -> Decision:
-        if value < 1:
-            return _MUST_BE_POSITIVE
-        purchases = self.purchased_ranks
-        if value > purchases:
-            return Decision(
-                success=False,
-                reason=f"Can't sell back {value} ranks when you've only purchased {purchases} ranks.",
-                amount=(value - purchases),
-            )
-        return Decision.SUCCESS
-
     def decrease(self, value: int) -> Decision:
         if not (rd := self.can_decrease(value)):
             return rd
@@ -700,9 +739,6 @@ class SkillController(FeatureController):
         self.purchased_ranks = current - value
         self.reconcile()
         return Decision.SUCCESS
-
-    def _link_to_character(self):
-        self.character._skills[self.full_id] = self
 
 
 class FlawController(FeatureController):
@@ -719,13 +755,82 @@ class FlawController(FeatureController):
     def option(self) -> str | None:
         return self.expression.option
 
+    @property
+    def overcame(self) -> bool:
+        if m := self.model:
+            return m.overcame
+        return False
+
+    @overcame.setter
+    def overcame(self, value: bool):
+        if m := self.model:
+            m.overcame = value
+            self.reconcile()
+        else:
+            raise ValueError(f"Can't set update {self.full_id} - flaw not present")
+
+    @property
+    def cp_awarded(self) -> bool:
+        if m := self.model:
+            return m.cp_awarded
+        return False
+
+    @cp_awarded.setter
+    def cp_awarded(self, value: bool):
+        if m := self.model:
+            m.cp_awarded = value
+            self.reconcile()
+        else:
+            raise ValueError(f"Can't set update {self.full_id} - flaw not present")
+
+    @property
+    def removed(self) -> bool:
+        if m := self.model:
+            return m.removed
+        return False
+
+    @removed.setter
+    def removed(self, value: bool):
+        if m := self.model:
+            m.removed = value
+            self.reconcile()
+        else:
+            raise ValueError(f"Can't set update {self.full_id} - flaw not present")
+
+    @property
+    def added_by_player(self) -> bool:
+        if m := self.model:
+            return m.added_by_player
+        return False
+
+    @added_by_player.setter
+    def added_by_player(self, value: bool):
+        if m := self.model:
+            m.added_by_player = value
+            self.reconcile()
+        else:
+            raise ValueError(f"Can't set update {self.full_id} - flaw not present")
+
+    @property
+    def can_overcome(self) -> bool:
+        if m := self.model:
+            return m.can_overcome
+        return False
+
+    @can_overcome.setter
+    def can_overcome(self, value: bool):
+        if m := self.model:
+            m.can_overcome = value
+        else:
+            raise ValueError(f"Can't set update {self.full_id} - flaw not present")
+
     @cached_property
     def award_options(self) -> dict[str, int] | None:
-        if not isinstance(self.definition.award_def, dict):
+        if not isinstance(self.definition.award, dict):
             return None
         award_dict: dict[str, int] = {}
         flags_to_eval: dict[str, int] = {}
-        for option, value in self.definition.award_def.items():
+        for option, value in self.definition.award.items():
             if not option.startswith("$"):
                 award_dict[option] = value
             else:
@@ -743,13 +848,80 @@ class FlawController(FeatureController):
                     award_dict[f] = value
         return award_dict
 
-    @cached_property
+    @property
+    def model(self) -> models.FlawModel | None:
+        return self.character.model.flaws.get(self.id)
+
+    @property
+    def purchased_ranks(self) -> int:
+        # No flaws currently have ranks, so we just check whether there's a model
+        # for it and whether that model is "active" (not overcome or removed).
+        if m := self.model:
+            return int(not (m.overcame or m.removed))
+        return 0
+
+    @property
+    def award_cp(self):
+        """CP awarded for having the flaw.
+
+        Zero if no CP was awarded for the flaw.
+        """
+        if m := self.model:
+            if not m.cp_awarded:
+                return 0
+            return self.hypothetical_award_value
+        return 0
+
+    @property
+    def overcome_cp(self):
+        """CP spent in overcoming the flaw.
+
+        Zero if not overcome.
+        """
+        if m := self.model:
+            if m.overcame and not m.removed:
+                return (
+                    self.hypothetical_award_value + self.character.ruleset.flaw_overcome
+                )
+        return 0
+
+    @property
     def hypothetical_award_value(self) -> int:
         """Amount of CP that would be awarded, assuming this flaw was taken at character creation."""
-        if isinstance(self.definition.award_def, int):
-            return self.definition.award_def
+        award: int = 0
+        if isinstance(self.definition.award, int):
+            award = self.definition.award
+        else:
+            award = self.award_options.get(self.option, 0)
+        # The award value can be modified if other features are present.
+        if self.definition.award_mods:
+            for flaw, mod in self.definition.award_mods.items():
+                if self.character.get_prop(flaw) > 0:
+                    award += mod
+        return max(award, 0)
 
-        return self.award_options.get(self.option, 0)
+    def can_increase(self, value: int) -> Decision:
+        # Players can't take flaws after character creation, except by asking plot.
+        if not self.character.can_respend:
+            return _NO_RESPEND
+        return super().can_increase(value)
+
+    def increase(self, value: int) -> Decision:
+        if not (rd := self.can_increase(value)):
+            return rd
+        self.character.model.flaws[self.id] = models.FlawModel()
+        self.reconcile()
+        return Decision.SUCCESS
+
+    def decrease(self, value: int) -> Decision:
+        if not (rd := self.can_decrease(value)):
+            return rd
+        # TODO: Implement Overcome, here or by some other action.
+        # For the moment, this is just the character creation action, which
+        # drops the model entirely.
+        del self.character.model.flaws[self.id]
+        self.reconcile()
+        return Decision.SUCCESS
 
 
 class SumAttribute(base_engine.AttributeController):
@@ -803,11 +975,26 @@ class CharacterPointController(base_engine.AttributeController):
     def value(self) -> int:
         base = self.character.awarded_cp + self.character.base_cp
         spent: int = 0
-        flaw_cp: int = 0
 
         for skill in self.character.skills.values():
             spent += skill.cp_cost
-        return base + flaw_cp - spent
+        spent += self.flaw_overcome_cp
+
+        return base + self.flaw_award_cp - spent
+
+    @property
+    def flaw_award_cp(self) -> int:
+        total: int = 0
+        for flaw in self.character.flaws.values():
+            total += flaw.award_cp
+        return min(total, self.character.ruleset.flaw_cp_cap)
+
+    @property
+    def flaw_overcome_cp(self) -> int:
+        total: int = 0
+        for flaw in self.character.flaws.values():
+            total += flaw.overcome_cp
+        return total
 
 
 class TempestEngine(base_engine.Engine):

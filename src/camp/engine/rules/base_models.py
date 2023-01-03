@@ -307,8 +307,6 @@ class BaseFeatureDef(BaseModel):
     ranks: int | Literal["unlimited"] = 1
     option_def: OptionDef | None = pydantic.Field(default=None, alias="option")
     multiple: bool = False
-    accepts_description: bool = False
-    description_prompt: str | None = None
 
     @classmethod
     def default_name(cls) -> str:
@@ -738,7 +736,7 @@ def parse_req(req: Requirements) -> BoolExpr | None:
     if isinstance(req, NoneOf):
         return NoneOf(none=[parse_req(r) for r in maybe_iter(req.none)])
     if isinstance(req, str):
-        if req.startswith("!"):
+        if req.startswith("-"):
             return NoneOf(none=[PropExpression.parse(req[1:])])
         else:
             return PropExpression.parse(req)
