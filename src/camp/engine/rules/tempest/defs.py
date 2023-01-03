@@ -115,15 +115,16 @@ class FlawDef(BaseFeatureDef):
 
     type: Literal["flaw"] = "flaw"
     category: str = "General Flaws"
-    award_def: int | dict[str, int] = Field(default=0, alias="award")
+    award: int | dict[str, int] = Field(default=0)
+    award_mods: dict[str, int] | None = None
 
     @property
     def option(self) -> base_models.OptionDef:
         if self.option_def:
             return self.option_def
-        if isinstance(self.award_def, dict):
+        if isinstance(self.award, dict):
             return base_models.OptionDef(
-                values=self.award.keys(),
+                values=set(self.award.keys()),
             )
         return None
 
