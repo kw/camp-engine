@@ -129,6 +129,13 @@ class FlawDef(BaseFeatureDef):
         return None
 
 
+class PerkDef(BaseFeatureDef):
+    type: Literal["perk"] = "perk"
+    category: str = "General Perks"
+    cost: int | CostByRank
+    grants: Grantable = None
+
+
 class PowerDef(BaseFeatureDef):
     type: Literal["power"] = "power"
     sphere: Literal["arcane", "divine", "martial", None] = None
@@ -151,7 +158,9 @@ class PowerDef(BaseFeatureDef):
         ruleset.validate_identifiers(_grantable_identifiers(self.grants))
 
 
-FeatureDefinitions: TypeAlias = ClassDef | SubFeatureDef | SkillDef | PowerDef | FlawDef
+FeatureDefinitions: TypeAlias = (
+    ClassDef | SubFeatureDef | SkillDef | PowerDef | FlawDef | PerkDef
+)
 
 
 class AttributeScaling(base_models.BaseModel):
