@@ -1,7 +1,6 @@
 name: Unwardable
 award: 5
-# TODO: Uncomment after adding othersleep
-# requires: -othersleep
+requires: -othersleep
 description: >
   Whether it is due to a curse, a bloodline corrupted by dark powers, or some more mysterious magic,
   the character cannot be at ease inside a Ward spell or a Haven Ritual. While the character is inside
