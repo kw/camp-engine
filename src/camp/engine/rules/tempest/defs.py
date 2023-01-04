@@ -94,6 +94,7 @@ class SkillDef(BaseFeatureDef):
     cost: int | CostByRank
     uses: int | None = None
     grants: Grantable = None
+    rank_labels: dict[int, str] | None = None
 
     def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
         super().post_validate(ruleset)
@@ -134,6 +135,8 @@ class PerkDef(BaseFeatureDef):
     category: str = "General Perks"
     cost: int | CostByRank
     grants: Grantable = None
+    rank_labels: dict[int, str] | None = None
+    creation_only: bool = False
 
 
 class PowerDef(BaseFeatureDef):
