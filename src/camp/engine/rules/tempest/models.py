@@ -54,4 +54,5 @@ class CharacterModel(base_models.CharacterModel):
     starting_class: str | None = None
     classes: dict[str, int] = Field(default_factory=dict)
     skills: dict[str, int] = Field(default_factory=dict)
+    perks: dict[str, int] = Field(default_factory=dict)
     flaws: dict[str, FlawModel] = Field(default_factory=dict)

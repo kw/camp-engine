@@ -88,10 +88,13 @@ class CostByRank(base_models.BaseModel):
         return total
 
 
+CostDef: TypeAlias = int | CostByRank
+
+
 class SkillDef(BaseFeatureDef):
     type: Literal["skill"] = "skill"
     category: str = "General Skills"
-    cost: int | CostByRank
+    cost: CostDef
     uses: int | None = None
     grants: Grantable = None
     rank_labels: dict[int, str] | None = None
@@ -133,10 +136,11 @@ class FlawDef(BaseFeatureDef):
 class PerkDef(BaseFeatureDef):
     type: Literal["perk"] = "perk"
     category: str = "General Perks"
-    cost: int | CostByRank
+    cost: CostDef
     grants: Grantable = None
     rank_labels: dict[int, str] | None = None
     creation_only: bool = False
+    discounts: dict[str, int] | None = None
 
 
 class PowerDef(BaseFeatureDef):

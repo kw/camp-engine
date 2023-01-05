@@ -43,6 +43,22 @@ class CharacterController(ABC):
         expr = base_models.PropExpression.parse(expr)
         return expr.prop in self.engine.attribute_map
 
+    def get_attribute(
+        self, expr: str | base_models.PropExpression
+    ) -> AttributeController | int | None:
+        expr = base_models.PropExpression.parse(expr)
+        attr: base_models.Attribute
+        if attr := self.engine.attribute_map.get(expr.prop):
+            # There are a few different ways an attribute might be stored or computed.
+            if hasattr(self, attr.property_name or attr.id):
+                attr_value: AttributeController | int = getattr(
+                    self, attr.property_name or attr.id
+                )
+                return attr_value
+            else:
+                return attr.default_value
+        return None
+
     def get_prop(self, expr: str | base_models.PropExpression) -> int:
         """Retrieve the value of an arbitrary property (feature, attribute, etc).
 
@@ -56,20 +72,12 @@ class CharacterController(ABC):
         add support for features.
         """
         expr = base_models.PropExpression.parse(expr)
-        attr: base_models.Attribute
-        if attr := self.engine.attribute_map.get(expr.prop):
-            # There are a few different ways an attribute might be stored or computed.
-            if hasattr(self, attr.property_name or attr.id):
-                attr_value: AttributeController | int = getattr(
-                    self, attr.property_name or attr.id
-                )
-                if isinstance(attr_value, AttributeController):
-                    if expr.single is not None:
-                        return attr_value.max_value
-                    return attr_value.value
-                return attr_value
-            else:
-                return attr.default_value
+        if attr := self.get_attribute(expr):
+            if isinstance(attr, AttributeController):
+                if expr.single is not None:
+                    return attr.max_value
+                return attr.value
+            return attr
         return 0
 
     @cached_property
@@ -229,6 +237,10 @@ class PropertyController(ABC):
     @property
     def max_value(self) -> int:
         return self.value
+
+    def propagate(self, data: dict[str, int]):
+        """Used to accept things like granted ranks from other sources."""
+        raise NotImplementedError(f"{self} does not implement propagation {data}.")
 
     def __eq__(self, other: Any) -> bool:
         if self is other:
