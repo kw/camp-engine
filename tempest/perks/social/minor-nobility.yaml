@@ -1,6 +1,9 @@
 name: Minor Nobility
 cost: 4
-# TODO: Implement the discounts.
+discounts:
+  income: 1
+  manse: 1
+  famous: 1
 description: >
   The character has a minor title such as Lord/Lady/Liege or Sir/Dame/Soren. This title has certain benefits and
   rights that come with it, but most only apply while the character is in their own demesne. The character does

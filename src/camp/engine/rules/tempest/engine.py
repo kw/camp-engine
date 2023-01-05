@@ -25,6 +25,7 @@ class TempestCharacter(base_engine.CharacterController):
     ruleset: defs.Ruleset
     _classes: dict[str, ClassController] | None = None
     _skills: dict[str, SkillController] | None = None
+    _perks: dict[str, PerkController] | None = None
     _flaws: dict[str, FlawController] | None = None
 
     @property
@@ -80,6 +81,10 @@ class TempestCharacter(base_engine.CharacterController):
     @property
     def base_lp(self) -> int:
         return self.ruleset.lp.evaluate(self.xp_level)
+
+    @cached_property
+    def lp(self) -> LifePointController:
+        return LifePointController("lp", self)
 
     @property
     def base_spikes(self) -> int:
@@ -150,6 +155,16 @@ class TempestCharacter(base_engine.CharacterController):
         return skills
 
     @property
+    def perks(self) -> dict[str, PerkController]:
+        if self._perks:
+            return self._perks
+        perks: dict[str, PerkController] = {}
+        for id in self.model.perks:
+            perks[id] = PerkController(id, self)
+        self._perks = perks
+        return perks
+
+    @property
     def flaws(self) -> dict[str, FlawController]:
         if self._flaws:
             return self._flaws
@@ -212,6 +227,7 @@ class TempestCharacter(base_engine.CharacterController):
         return {
             "class": self.classes,
             "skill": self.skills,
+            "perk": self.perks,
             "flaw": self.flaws,
         }
 
@@ -239,6 +255,8 @@ class TempestCharacter(base_engine.CharacterController):
                 return SkillController(id, self)
             case "flaw":
                 return FlawController(id, self)
+            case "perk":
+                return PerkController(id, self)
         raise NotImplementedError(
             f"Unknown feature controller {feature_type} for feature {id}"
         )
@@ -261,11 +279,25 @@ class TempestCharacter(base_engine.CharacterController):
             return self._controller_for_type(feature_def.type, expr.full_id)
         return None
 
+    def _controller_for_property(
+        self, expr: PropExpression | str, create: bool = True
+    ) -> base_engine.PropertyController | None:
+        if isinstance(expr, str):
+            expr = PropExpression.parse(expr)
+        if expr.prop in self.ruleset.features:
+            return self._controller_for_feature(expr, create=create)
+        elif expr.prop in self.ruleset.attribute_map:
+            controller = self.get_attribute(expr)
+            if isinstance(controller, base_engine.PropertyController):
+                return controller
+        return None
+
     def clear_caches(self):
         super().clear_caches()
         self._classes = {}
         self._skills = {}
         self._flaws = {}
+        self._perks = {}
 
 
 class FeatureController(base_engine.FeatureController):
@@ -296,8 +328,20 @@ class FeatureController(base_engine.FeatureController):
     def option_def(self) -> OptionDef | None:
         return self.definition.option
 
+    @property
+    def taken_options(self) -> dict[str, int]:
+        options = {}
+        for controller in self.character.features[self.feature_type].values():
+            if controller.id == self.id and controller.option:
+                options[controller.option] = controller.value
+        return options
+
     @abstractproperty
     def purchased_ranks(self) -> int:
+        ...
+
+    @purchased_ranks.setter
+    def purchased_ranks(self, value: int):
         ...
 
     @property
@@ -327,19 +371,12 @@ class FeatureController(base_engine.FeatureController):
     @property
     def value(self) -> int:
         if self.option_def and not self.option:
-            # This is an aggregate controller for the skill.
+            # This is an aggregate controller for the feature.
             # Sum any ranks the character has in instances of it.
             total: int = 0
-            for skill in self.character.model.skills:
-                if skill.startswith(f"{self.id}#"):
-                    # Note that we don't need to iterate over the keys in the
-                    # grants dictionary. If a grant is provided for a skill with
-                    # no ranks, we always add a 0 entry to the 'skills' dict for it
-                    # so that it always represents the skills on the sheet.
-                    if controller := self.character._controller_for_feature(
-                        PropExpression.parse(skill)
-                    ):
-                        total += controller.value
+            for feat, controller in self.character.features[self.feature_type].items():
+                if feat.startswith(f"{self.id}#"):
+                    total += controller.value
             return total
         if self._effective_ranks is None:
             self.reconcile()
@@ -348,19 +385,14 @@ class FeatureController(base_engine.FeatureController):
     @property
     def max_value(self) -> int:
         if self.option_def and not self.option:
-            # This is an aggregate controller for the skill.
+            # This is an aggregate controller for the feature.
             # Return the value of the highest instance.
             current: int = 0
-            for feat in self.character.features[self.feature_type]:
+            for feat, controller in self.character.features[self.feature_type].items():
                 if feat.startswith(f"{self.id}#"):
-                    # Note that we don't need to iterate over the keys in the
-                    # grants dictionary. If a grant is provided for a skill with
-                    # no ranks, we always add a 0 entry to the 'skills' dict for it
-                    # so that it always represents the skills on the sheet.
-                    if controller := self.character._controller_for_feature(feat):
-                        new_value = controller.value
-                        if new_value > current:
-                            current = new_value
+                    new_value = controller.value
+                    if new_value > current:
+                        current = new_value
             return current
         return super().max_value
 
@@ -423,8 +455,9 @@ class FeatureController(base_engine.FeatureController):
             )
         return Decision.SUCCESS
 
-    def update_grants(self, delta: int) -> None:
-        self._granted_ranks += delta
+    def propagate(self, data: dict[str, int]) -> None:
+        if "grants" in data:
+            self._granted_ranks += data["grants"]
         self.reconcile()
 
     def reconcile(self) -> None:
@@ -439,7 +472,7 @@ class FeatureController(base_engine.FeatureController):
         """
         previous_ranks = self._effective_ranks or 0
         self._effective_ranks = min(
-            self._granted_ranks + self.purchased_ranks, self.max_ranks
+            self.granted_ranks + self.purchased_ranks, self.max_ranks
         )
 
         if previous_ranks <= 0 and self._effective_ranks > 0:
@@ -465,31 +498,31 @@ class FeatureController(base_engine.FeatureController):
     def _distribute_grants(self, grants: defs.Grantable):
         if isinstance(grants, str):
             expr = PropExpression.parse(grants)
-            if controller := self.character._controller_for_feature(expr):
-                controller.update_grants(expr.value or 1)
+            if controller := self.character._controller_for_property(expr):
+                controller.propagate({"grants": expr.value or 1})
         elif isinstance(grants, list):
             for grant in grants:
                 self._distribute_grants(grant)
         elif isinstance(grants, dict):
             for id, value in grants.items():
-                if controller := self.character._controller_for_feature(id):
-                    controller.update_grants(value)
+                if controller := self.character._controller_for_property(id):
+                    controller.propagate({"grants": value})
         else:
             raise NotImplementedError(f"Unexpected grant value: {grants}")
 
     def _revoke_grants(self, grants: defs.Grantable):
         if isinstance(grants, str):
             expr = PropExpression.parse(grants)
-            if controller := self.character._controller_for_feature(expr):
+            if controller := self.character._controller_for_property(expr):
                 value = expr.value or 1
-                controller.update_grants(-value)
+                controller.propagate({"grants": -value})
         elif isinstance(grants, list):
             for grant in grants:
                 self._revoke_grants(grant)
         elif isinstance(grants, dict):
             for id, value in grants.items():
-                if controller := self.character._controller_for_feature(id):
-                    controller.update_grants(-value)
+                if controller := self.character._controller_for_property(id):
+                    controller.propagate({"grants": -value})
         else:
             raise NotImplementedError(f"Unexpected grant value: {grants}")
 
@@ -614,71 +647,25 @@ class ClassController(FeatureController):
         return Decision(success=True, amount=self.value)
 
 
-class SkillController(FeatureController):
-    definition: defs.SkillDef
-
-    def __init__(self, full_id: str, character: TempestCharacter):
-        super().__init__(full_id, character)
-        if not isinstance(self.definition, defs.SkillDef):
-            raise ValueError(
-                f"Expected {full_id} to be a skill, but was {type(self.definition)}"
-            )
-
+class CostsCharacterPointsController(FeatureController):
     @property
-    def option(self) -> str | None:
-        return self.expression.option
-
-    @property
-    def purchased_ranks(self) -> int:
-        # Unlike `value`, we don't care about whether this is an option skill.
-        # Raw option skills never have purchases.
-        return self.character.model.skills.get(self.full_id, 0)
-
-    @purchased_ranks.setter
-    def purchased_ranks(self, value):
-        self.character.model.skills[self.full_id] = value
-
-    @property
-    def value(self) -> int:
-        if self.option_def and not self.option:
-            # This is an aggregate controller for the skill.
-            # Sum any ranks the character has in instances of it.
-            total: int = 0
-            for skill in self.character.model.skills:
-                if skill.startswith(f"{self.id}#"):
-                    # Note that we don't need to iterate over the keys in the
-                    # grants dictionary. If a grant is provided for a skill with
-                    # no ranks, we always add a 0 entry to the 'skills' dict for it
-                    # so that it always represents the skills on the sheet.
-                    if controller := self.character._controller_for_feature(
-                        PropExpression.parse(skill)
-                    ):
-                        total += controller.value
-            return total
-        return super().value
-
-    @property
-    def taken_options(self) -> dict[str, int]:
-        options = {}
-        for controller in self.character.skills.values():
-            if controller.id == self.id and controller.option:
-                options[controller.option] = controller.value
-        return options
+    def cost_def(self) -> defs.CostDef:
+        if not hasattr(self.definition, "cost"):
+            raise NotImplementedError(f"{self} does not have a cost definition.")
+        return self.definition.cost
 
     @property
     def cp_cost(self) -> int:
         return self.cost_for(self.paid_ranks)
 
     def cost_for(self, ranks: int) -> int:
-        match self.definition.cost:
+        match cd := self.cost_def:
             case int():
-                return self.definition.cost * ranks
+                return cd * ranks
             case defs.CostByRank():
                 return self.definition.cost.total_cost(ranks)
             case _:
-                raise NotImplementedError(
-                    f"Don't know how to compute cost with {self.definition.cost}"
-                )
+                raise NotImplementedError(f"Don't know how to compute cost with {cd}")
 
     def max_rank_increase(self, available_cp: int = -1) -> int:
         if available_cp < 0:
@@ -687,12 +674,10 @@ class SkillController(FeatureController):
         current_cost = self.cp_cost
         if available_ranks < 1:
             return 0
-        match self.definition.cost:
+        match cd := self.cost_def:
             case int():
                 # Relatively trivial case
-                return min(
-                    available_ranks, math.floor(available_cp / self.definition.cost)
-                )
+                return min(available_ranks, math.floor(available_cp / cd))
             case defs.CostByRank():
                 while available_ranks > 0:
                     cp_delta = (
@@ -703,9 +688,7 @@ class SkillController(FeatureController):
                     available_ranks -= 1
                 return 0
             case _:
-                raise NotImplementedError(
-                    f"Don't know how to compute cost with {self.definition.cost}"
-                )
+                raise NotImplementedError(f"Don't know how to compute cost with {cd}")
 
     def can_increase(self, value: int) -> Decision:
         if not (rd := super().can_increase(value)):
@@ -727,7 +710,7 @@ class SkillController(FeatureController):
         current = self.purchased_ranks
         self.purchased_ranks = current + value
         if current == 0:
-            # This is a new skill for this character. Cache this controller.
+            # This is a new feature for this character. Cache this controller.
             self._link_to_character()
         self.reconcile()
         return Decision(success=True, amount=self.value)
@@ -739,6 +722,46 @@ class SkillController(FeatureController):
         self.purchased_ranks = current - value
         self.reconcile()
         return Decision.SUCCESS
+
+
+class SkillController(CostsCharacterPointsController):
+    definition: defs.SkillDef
+
+    def __init__(self, full_id: str, character: TempestCharacter):
+        super().__init__(full_id, character)
+        if not isinstance(self.definition, defs.SkillDef):
+            raise ValueError(
+                f"Expected {full_id} to be a skill, but was {type(self.definition)}"
+            )
+
+    @property
+    def purchased_ranks(self) -> int:
+        # Unlike `value`, we don't care about whether this is an option skill.
+        # Raw option skills never have purchases.
+        return self.character.model.skills.get(self.full_id, 0)
+
+    @purchased_ranks.setter
+    def purchased_ranks(self, value):
+        self.character.model.skills[self.full_id] = value
+
+
+class PerkController(CostsCharacterPointsController):
+    definition: defs.PerkDef
+
+    def __init__(self, full_id: str, character: TempestCharacter):
+        super().__init__(full_id, character)
+        if not isinstance(self.definition, defs.PerkDef):
+            raise ValueError(
+                f"Expected {full_id} to be a skill, but was {type(self.definition)}"
+            )
+
+    @property
+    def purchased_ranks(self) -> int:
+        return self.character.model.perks.get(self.full_id, 0)
+
+    @purchased_ranks.setter
+    def purchased_ranks(self, value):
+        self.character.model.perks[self.full_id] = value
 
 
 class FlawController(FeatureController):
@@ -860,6 +883,13 @@ class FlawController(FeatureController):
             return int(not (m.overcame or m.removed))
         return 0
 
+    @purchased_ranks.setter
+    def purchased_ranks(self, value: int):
+        if self.purchased_ranks == 0 and value > 0:
+            self.character.model.flaws[self.id] = models.FlawModel()
+        elif self.purchased_ranks > 0 and value <= 0:
+            del self.character.model.flaws[self.id]
+
     @property
     def award_cp(self):
         """CP awarded for having the flaw.
@@ -909,7 +939,7 @@ class FlawController(FeatureController):
     def increase(self, value: int) -> Decision:
         if not (rd := self.can_increase(value)):
             return rd
-        self.character.model.flaws[self.id] = models.FlawModel()
+        self.purchased_ranks = value
         self.reconcile()
         return Decision.SUCCESS
 
@@ -924,7 +954,29 @@ class FlawController(FeatureController):
         return Decision.SUCCESS
 
 
-class SumAttribute(base_engine.AttributeController):
+class AttributeController(base_engine.AttributeController):
+    character: TempestCharacter
+    _granted_ranks: int = 0
+
+    def __init__(self, prop_id: str, character: TempestCharacter):
+        super().__init__(prop_id, character)
+
+    def propagate(self, data: dict[str, int]):
+        if "grants" in data:
+            self._granted_ranks += data["grants"]
+
+    @property
+    def value(self):
+        return self._granted_ranks
+
+
+class LifePointController(AttributeController):
+    @property
+    def value(self):
+        return super().value + self.character.base_lp
+
+
+class SumAttribute(AttributeController):
     """Represents an attribute that aggregates over particular types of features.
 
     For example, the "caster" attribute measures the number of levels of spellcasting
@@ -951,7 +1003,7 @@ class SumAttribute(base_engine.AttributeController):
 
     @property
     def value(self) -> int:
-        total: int = 0
+        total: int = super().value
         for fc in self.character.features[self._feature_type].values():
             if self._condition is None or getattr(fc, self._condition, True):
                 total += fc.value
@@ -968,19 +1020,32 @@ class SumAttribute(base_engine.AttributeController):
         return current
 
 
-class CharacterPointController(base_engine.AttributeController):
+class CharacterPointController(AttributeController):
     character: TempestCharacter
 
     @property
     def value(self) -> int:
-        base = self.character.awarded_cp + self.character.base_cp
-        spent: int = 0
+        base = self.character.awarded_cp + self.character.base_cp + super().value
 
+        return base + self.flaw_award_cp - self.spent_cp
+
+    @property
+    def spent_cp(self) -> int:
+        return self.skill_spent_cp + self.perk_spent_cp + self.flaw_overcome_cp
+
+    @property
+    def skill_spent_cp(self) -> int:
+        spent: int = 0
         for skill in self.character.skills.values():
             spent += skill.cp_cost
-        spent += self.flaw_overcome_cp
+        return spent
 
-        return base + self.flaw_award_cp - spent
+    @property
+    def perk_spent_cp(self) -> int:
+        spent: int = 0
+        for perk in self.character.perks.values():
+            spent += perk.cp_cost
+        return spent
 
     @property
     def flaw_award_cp(self) -> int:
