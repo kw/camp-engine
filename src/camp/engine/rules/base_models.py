@@ -458,20 +458,24 @@ class FeatureMatcher(BaseModel):
     """Matcher for checking if a particular feature can be used in some context.
 
     Generally this is used in slot definitions that want to say something like
-    "Pick any character option" or "Choose any martial skill" or the like.
+    "Pick any perk" or "Choose any martial skill" or the like.
 
     Attributes:
         id: One or more feature IDs. If present, features must be in this set of IDs.
-            When a single ID is used, the matcher is likely trying to match against an
-            option of the feature.
-        type: The type of the feature, suck as 'skill', 'class', 'classfeature', etc.
-        option:
+            Does not currently accept options or other expression modifiers.
+        type: The type of the feature, such as 'skill', 'class', 'subfeature', etc.
+        tags: Either a single tag or a set of tags. Tags are either 'positive' or
+            'negative', depending on whether they're prefixed with a '-'. If positive
+            tags are present, the feature must have them to pass. If negative tags are
+            present, the feature must _not_ have them to pass. These can be combined.
+        attrs: Automatically populated with any extra attributes when parsed from
+            data files. Any key is interpreted as a property of the feature object,
+            and the property's value must equal it.
     """
 
     id: Identifiers = None
     type: str | None = None
-    tags: set[str] | None = None
-    option: str | list[str] | None = None
+    tags: str | set[str] | None = None
     attrs: dict[str, Any] = pydantic.Field(default_factory=dict)
 
     class Config:
@@ -488,15 +492,11 @@ class FeatureMatcher(BaseModel):
         values["attrs"] = attrs
         return values
 
-    def matches(
-        self, feature: BaseFeatureDef, character: base_engine.CharacterController
-    ) -> bool:
+    def matches(self, feature: BaseFeatureDef) -> bool:
         """Does this feature match the matcher?
 
         Args:
             feature: The feature to check.
-            character: The character to use for context. See the doc string for the "option"
-                attribute for why.
         """
         if self.id is not None:
             if isinstance(self.id, str):
@@ -508,15 +508,15 @@ class FeatureMatcher(BaseModel):
             if feature.type != self.type:
                 return False
         if self.tags is not None:
-            if not self.tags.issubset(feature.tags):
+            if isinstance(self.tags, str):
+                tags = {self.tags}
+            else:
+                tags = self.tags
+            positive_tags = {t for t in tags if not t.startswith("-")}
+            negative_tags = {t[1:] for t in tags if t.startswith("-")}
+            if positive_tags and not positive_tags.issubset(feature.tags):
                 return False
-        if self.option is not None:
-            # Are any of the specified options valid for this feature on this character?
-            options = self.option if not isinstance(self.option, str) else [self.option]
-            if not any(
-                character.option_satisfies_definition(feature.id, opt)
-                for opt in options
-            ):
+            if negative_tags and negative_tags.issubset(feature.tags):
                 return False
         # Arbitrary attribute matcher.
         for attr, value in self.attrs.items():
@@ -627,11 +627,13 @@ class Purchase(BaseModel):
         option: Option value, if any
         ranks: Number of ranks to purchase. If the feature does not have ranks,
             use the default of "1".
+        slot: If using a slot to purchase this feature, identify which one.
     """
 
     id: str
     option: str | None = None
     ranks: int = 1
+    slot: str | None = None
 
     @property
     def full_id(self) -> str:
