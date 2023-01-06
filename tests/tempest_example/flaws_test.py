@@ -6,7 +6,7 @@ import pytest
 
 from camp.engine import loader
 from camp.engine.rules.base_engine import Engine
-from camp.engine.rules.tempest.engine import TempestCharacter
+from camp.engine.rules.tempest.controllers.character_controller import TempestCharacter
 from camp.engine.rules.tempest.engine import TempestEngine
 
 EXAMPLES = pathlib.Path(__file__).parent.parent.parent / "examples"
