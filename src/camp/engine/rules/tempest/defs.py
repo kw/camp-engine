@@ -16,6 +16,14 @@ from camp.engine.utils import table_lookup
 
 from . import models
 
+
+class SlotDef(base_models.BaseModel):
+    id: str
+    limit: int | Literal["unlimited"] = 1
+    discount: int | Literal["free"] = "free"
+    matcher: base_models.FeatureMatcher | None = None
+
+
 Attribute: TypeAlias = base_models.Attribute
 Grantable: TypeAlias = str | list[str] | dict[str, int]
 Discounts: TypeAlias = dict[str, int]
@@ -24,16 +32,23 @@ Discounts: TypeAlias = dict[str, int]
 class BaseFeatureDef(base_models.BaseFeatureDef):
     grants: Grantable | None = None
     discounts: dict[str, int] | None = None
-
-
-class SubFeatureDef(BaseFeatureDef):
-    type: Literal["subfeature"] = "subfeature"
-    parent: str | None = None
+    slots: list[SlotDef] | None = None
 
     def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
         super().post_validate(ruleset)
         if self.grants:
             ruleset.validate_identifiers(_grantable_identifiers(self.grants))
+        if self.discounts:
+            ruleset.validate_identifiers(self.discounts.keys())
+        if self.slots:
+            for slot in self.slots:
+                if slot.matcher and slot.matcher.id:
+                    ruleset.validate_identifiers(slot.matcher.id)
+
+
+class SubFeatureDef(BaseFeatureDef):
+    type: Literal["subfeature"] = "subfeature"
+    parent: str | None = None
 
 
 class ClassDef(BaseFeatureDef):
@@ -58,9 +73,6 @@ class ClassDef(BaseFeatureDef):
         if self.bonus_features:
             grantables = list(self.bonus_features.values())
             ruleset.validate_identifiers(_grantable_identifiers(grantables))
-        self.tags |= {self.sphere, "level"}
-        if self.sphere != "martial":
-            self.tags.add("caster")
 
 
 class CostByRank(base_models.BaseModel):
@@ -102,12 +114,7 @@ class SkillDef(BaseFeatureDef):
     category: str = "General Skills"
     cost: CostDef
     uses: int | None = None
-    grants: Grantable = None
     rank_labels: dict[int, str] | None = None
-
-    def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
-        super().post_validate(ruleset)
-        ruleset.validate_identifiers(_grantable_identifiers(self.grants))
 
 
 class FlawDef(BaseFeatureDef):
@@ -138,12 +145,16 @@ class FlawDef(BaseFeatureDef):
             )
         return None
 
+    def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
+        super().post_validate(ruleset)
+        if self.award_mods:
+            ruleset.validate_identifiers(self.award_mods.keys())
+
 
 class PerkDef(BaseFeatureDef):
     type: Literal["perk"] = "perk"
     category: str = "General Perks"
     cost: CostDef
-    grants: Grantable = None
     rank_labels: dict[int, str] | None = None
     creation_only: bool = False
 
@@ -162,7 +173,6 @@ class PowerDef(BaseFeatureDef):
     delivery: str | None = None
     refresh: str | None = None
     effect: str | None = None
-    grants: Grantable = None
 
     def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
         super().post_validate(ruleset)

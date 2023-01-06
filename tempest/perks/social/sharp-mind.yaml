@@ -1,8 +1,9 @@
 name: Sharp Mind
 cost: 3
 grants:
-  - library
+  - library-use
   - basic-scholarship
-# TODO: Add Lore discount
+discounts:
+  lore: 1
 description: >
-  Gain the Library Skill and Basic Scholarship Skills at no cost and Lore ranks cost 1 point less than normal to a minimum of 1.
+  Gain the Library Use Skill and Basic Scholarship Skills at no cost and Lore ranks cost 1 point less than normal to a minimum of 1.
