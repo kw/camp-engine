@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC
 from abc import abstractmethod
 from abc import abstractproperty
+from dataclasses import dataclass
 from functools import cached_property
 from functools import total_ordering
 from typing import Any
@@ -238,7 +239,7 @@ class PropertyController(ABC):
     def max_value(self) -> int:
         return self.value
 
-    def propagate(self, data: dict[str, int]):
+    def propagate(self, data: PropagationData):
         """Used to accept things like granted ranks from other sources."""
         raise NotImplementedError(f"{self} does not implement propagation {data}.")
 
@@ -375,3 +376,12 @@ class Engine(ABC):
                 f" with ruleset {self.ruleset.id} v{self.ruleset.version}"
             )
         return data
+
+
+@dataclass
+class PropagationData:
+    grants: int = 0
+    discount: int = 0
+
+    def __bool__(self) -> bool:
+        return bool(self.grants or self.discount)

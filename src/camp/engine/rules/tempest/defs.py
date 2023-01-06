@@ -18,10 +18,12 @@ from . import models
 
 Attribute: TypeAlias = base_models.Attribute
 Grantable: TypeAlias = str | list[str] | dict[str, int]
+Discounts: TypeAlias = dict[str, int]
 
 
 class BaseFeatureDef(base_models.BaseFeatureDef):
     grants: Grantable | None = None
+    discounts: dict[str, int] | None = None
 
 
 class SubFeatureDef(BaseFeatureDef):
@@ -80,11 +82,15 @@ class CostByRank(base_models.BaseModel):
         """The cost of a particular rank."""
         return table_lookup(self.ranks, rank)
 
-    def total_cost(self, ranks: int) -> int:
-        """The combined cost of a given number of ranks."""
+    def total_cost(self, ranks: int, discount: int = 0) -> int:
+        """The combined cost of a given number of ranks.
+
+        If `discount` is specified, it's interpreted as a per-rank discount.
+        No rank will cost less than 1.
+        """
         total: int = 0
         for rank in range(1, ranks + 1):
-            total += table_lookup(self.ranks, rank)
+            total += max(table_lookup(self.ranks, rank) - discount, 1)
         return total
 
 
@@ -140,7 +146,6 @@ class PerkDef(BaseFeatureDef):
     grants: Grantable = None
     rank_labels: dict[int, str] | None = None
     creation_only: bool = False
-    discounts: dict[str, int] | None = None
 
 
 class PowerDef(BaseFeatureDef):
