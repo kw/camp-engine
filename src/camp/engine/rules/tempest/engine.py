@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from abc import abstractproperty
 from functools import cached_property
+from typing import Iterable
 from typing import Mapping
 
 from camp.engine import utils
@@ -307,6 +308,7 @@ class FeatureController(base_engine.FeatureController):
     full_id: str
     _effective_ranks: int | None
     _granted_ranks: int
+    _discount: int
 
     def __init__(self, full_id: str, character: TempestCharacter):
         self.expression = PropExpression.parse(full_id)
@@ -315,6 +317,7 @@ class FeatureController(base_engine.FeatureController):
         self.definition = character.ruleset.features[self.id]
         self._effective_ranks = None
         self._granted_ranks = 0
+        self._discount = 0
 
     @cached_property
     def feature_type(self) -> str:
@@ -332,7 +335,7 @@ class FeatureController(base_engine.FeatureController):
     def taken_options(self) -> dict[str, int]:
         options = {}
         for controller in self.character.features[self.feature_type].values():
-            if controller.id == self.id and controller.option:
+            if controller.id == self.id and controller.option and controller.value > 0:
                 options[controller.option] = controller.value
         return options
 
@@ -397,7 +400,9 @@ class FeatureController(base_engine.FeatureController):
         return super().max_value
 
     def _link_to_character(self):
-        self.character.features[self.definition.type][self.full_id] = self
+        feats = self.character.features[self.definition.type]
+        if self.full_id not in feats:
+            feats[self.full_id] = self
 
     def can_increase(self, value: int) -> Decision:
         if value <= 0:
@@ -455,9 +460,11 @@ class FeatureController(base_engine.FeatureController):
             )
         return Decision.SUCCESS
 
-    def propagate(self, data: dict[str, int]) -> None:
-        if "grants" in data:
-            self._granted_ranks += data["grants"]
+    def propagate(self, data: base_engine.PropagationData) -> None:
+        if not data:
+            return
+        self._granted_ranks += data.grants
+        self._discount += data.discount
         self.reconcile()
 
     def reconcile(self) -> None:
@@ -475,56 +482,70 @@ class FeatureController(base_engine.FeatureController):
             self.granted_ranks + self.purchased_ranks, self.max_ranks
         )
 
-        if previous_ranks <= 0 and self._effective_ranks > 0:
-            # The feature has been gained. All feature definitions have a `grants` field
-            # that should be distributed whenever the feature is gained, regardless of how
-            # many ranks are involved.
-            self._link_to_character()
-            if self.definition.grants:
-                self._distribute_grants(self.definition.grants)
-        if previous_ranks > 0 and self._effective_ranks <= 0 and self.definition.grants:
-            self._revoke_grants(self.definition.grants)
-        elif previous_ranks < self._effective_ranks:
-            # The feature has increased but not been removed.
-            # Most features do not support varying levels of grants,
-            # so nothing happens most of the time.
-            pass
-        elif previous_ranks > self._effective_ranks:
-            # The feature has decreased but not been removed.
-            # Most features do not support varying levels of grants,
-            # so nothing happens most of the time.
-            pass
+        self._link_to_character()
+        self._perform_propagation(previous_ranks, self._effective_ranks)
 
-    def _distribute_grants(self, grants: defs.Grantable):
-        if isinstance(grants, str):
+    def _perform_propagation(self, from_ranks: int, to_ranks: int) -> None:
+        props = self._gather_propagation(from_ranks, to_ranks)
+        for id, data in props.items():
+            if controller := self.character._controller_for_property(id):
+                controller.propagate(data)
+
+    def _gather_propagation(
+        self, from_ranks: int, to_ranks: int
+    ) -> dict[str, base_engine.PropagationData]:
+        if not (from_ranks == 0 or to_ranks == 0) or (from_ranks == to_ranks):
+            # At the moment, all grants only happen at the boundary of 0, so skip
+            # all this if we're not coming from or going to 0.
+            return {}
+        grants = dict(self._gather_grants(self.definition.grants, from_ranks, to_ranks))
+        discounts = dict(
+            self._gather_discounts(self.definition.discounts, from_ranks, to_ranks)
+        )
+        props: dict[str, base_engine.PropagationData] = {}
+        all_keys = set(grants.keys()).union(discounts.keys())
+        for id in all_keys:
+            props[id] = base_engine.PropagationData()
+            if g := grants.get(id):
+                props[id].grants = g
+            if d := discounts.get(id):
+                props[id].discount = d
+        return props
+
+    def _gather_grants(
+        self, grants: defs.Grantable, from_ranks: int, to_ranks: int
+    ) -> Iterable[tuple[str, int]]:
+        if not grants:
+            return
+        elif isinstance(grants, str):
             expr = PropExpression.parse(grants)
-            if controller := self.character._controller_for_property(expr):
-                controller.propagate({"grants": expr.value or 1})
+            value = expr.value or 1
+            if to_ranks <= 0:
+                value = -value
+            yield expr.full_id, value
         elif isinstance(grants, list):
             for grant in grants:
-                self._distribute_grants(grant)
+                yield from self._gather_grants(grant, from_ranks, to_ranks)
         elif isinstance(grants, dict):
-            for id, value in grants.items():
-                if controller := self.character._controller_for_property(id):
-                    controller.propagate({"grants": value})
+            for key, value in grants.items():
+                if to_ranks <= 0 and from_ranks > 0:
+                    value = -value
+                yield key, value
         else:
             raise NotImplementedError(f"Unexpected grant value: {grants}")
 
-    def _revoke_grants(self, grants: defs.Grantable):
-        if isinstance(grants, str):
-            expr = PropExpression.parse(grants)
-            if controller := self.character._controller_for_property(expr):
-                value = expr.value or 1
-                controller.propagate({"grants": -value})
-        elif isinstance(grants, list):
-            for grant in grants:
-                self._revoke_grants(grant)
-        elif isinstance(grants, dict):
-            for id, value in grants.items():
-                if controller := self.character._controller_for_property(id):
-                    controller.propagate({"grants": -value})
+    def _gather_discounts(
+        self, discounts: defs.Discounts, from_ranks: int, to_ranks: int
+    ):
+        if not discounts:
+            return
+        elif isinstance(discounts, dict):
+            for key, value in discounts.items():
+                if to_ranks <= 0:
+                    value = -value
+                yield key, value
         else:
-            raise NotImplementedError(f"Unexpected grant value: {grants}")
+            raise NotImplementedError(f"Unexpected discount value: {discounts}")
 
 
 class ClassController(FeatureController):
@@ -659,13 +680,14 @@ class CostsCharacterPointsController(FeatureController):
         return self.cost_for(self.paid_ranks)
 
     def cost_for(self, ranks: int) -> int:
-        match cd := self.cost_def:
-            case int():
-                return cd * ranks
-            case defs.CostByRank():
-                return self.definition.cost.total_cost(ranks)
-            case _:
-                raise NotImplementedError(f"Don't know how to compute cost with {cd}")
+        cd = self.cost_def
+        if isinstance(cd, int):
+            cd = max(cd - self._discount, 1)
+            return cd * ranks
+        elif isinstance(cd, defs.CostByRank):
+            return cd.total_cost(ranks, discount=self._discount)
+        else:
+            raise NotImplementedError(f"Don't know how to compute cost with {cd}")
 
     def max_rank_increase(self, available_cp: int = -1) -> int:
         if available_cp < 0:
@@ -961,9 +983,8 @@ class AttributeController(base_engine.AttributeController):
     def __init__(self, prop_id: str, character: TempestCharacter):
         super().__init__(prop_id, character)
 
-    def propagate(self, data: dict[str, int]):
-        if "grants" in data:
-            self._granted_ranks += data["grants"]
+    def propagate(self, data: base_engine.PropagationData):
+        self._granted_ranks += data.grants
 
     @property
     def value(self):
@@ -1036,28 +1057,28 @@ class CharacterPointController(AttributeController):
     @property
     def skill_spent_cp(self) -> int:
         spent: int = 0
-        for skill in self.character.skills.values():
+        for skill in list(self.character.skills.values()):
             spent += skill.cp_cost
         return spent
 
     @property
     def perk_spent_cp(self) -> int:
         spent: int = 0
-        for perk in self.character.perks.values():
+        for perk in list(self.character.perks.values()):
             spent += perk.cp_cost
         return spent
 
     @property
     def flaw_award_cp(self) -> int:
         total: int = 0
-        for flaw in self.character.flaws.values():
+        for flaw in list(self.character.flaws.values()):
             total += flaw.award_cp
         return min(total, self.character.ruleset.flaw_cp_cap)
 
     @property
     def flaw_overcome_cp(self) -> int:
         total: int = 0
-        for flaw in self.character.flaws.values():
+        for flaw in list(self.character.flaws.values()):
             total += flaw.overcome_cp
         return total
 
