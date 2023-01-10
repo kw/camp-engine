@@ -6,6 +6,7 @@ import pytest
 
 from camp.engine import loader
 from camp.engine.rules.base_engine import Engine
+from camp.engine.rules.base_models import Purchase
 from camp.engine.rules.tempest.controllers.character_controller import TempestCharacter
 from camp.engine.rules.tempest.engine import TempestEngine
 
@@ -78,3 +79,33 @@ def test_perk_discount(character: TempestCharacter):
     # But advanced-perk costs 2, so this'll be cheaper
     assert character.purchase("advanced-perk")
     assert character.cp.spent_cp == base_cp + 2
+
+
+# Patron-related.
+
+
+def test_patron_grants_slot(character: TempestCharacter):
+    assert character.purchase("patron")
+    assert character.has_slot("patron-discount")
+    assert character.legal_features_for_slot("patron-discount")
+    assert character.list_features(available=True, slot="patron-discount")
+
+
+def test_patron_slot_only_for_perks(character: TempestCharacter):
+    character.purchase("patron")
+    assert not character.can_purchase(
+        Purchase(id="basic-skill", slot="patron-discount")
+    )
+    assert character.can_purchase(Purchase(id="basic-perk", slot="patron-discount"))
+
+
+def test_patron_discount_in_list(character: TempestCharacter):
+    """When listing features for the discount slot, the discount is applied appropriately."""
+    character.purchase("patron")
+    for feature in character.list_features(available=True, slot="patron-discount"):
+        assert feature.type == "perk"
+        normal = character.show_feature(feature.id)
+        if normal.cost[0] > 1:
+            assert feature.cost[0] == normal.cost[0] - 1
+        else:
+            assert feature.cost[0] == 1

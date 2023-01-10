@@ -16,14 +16,6 @@ from camp.engine.utils import table_lookup
 
 from . import models
 
-
-class SlotDef(base_models.BaseModel):
-    id: str
-    limit: int | Literal["unlimited"] = 1
-    discount: int | Literal["free"] = "free"
-    matcher: base_models.FeatureMatcher | None = None
-
-
 Attribute: TypeAlias = base_models.Attribute
 Grantable: TypeAlias = str | list[str] | dict[str, int]
 Discounts: TypeAlias = dict[str, int]
@@ -32,7 +24,7 @@ Discounts: TypeAlias = dict[str, int]
 class BaseFeatureDef(base_models.BaseFeatureDef):
     grants: Grantable | None = None
     discounts: dict[str, int] | None = None
-    slots: list[SlotDef] | None = None
+    slots: list[base_models.SlotDef] | None = None
 
     def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
         super().post_validate(ruleset)

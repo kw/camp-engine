@@ -179,7 +179,7 @@ class FlawController(feature_controller.FeatureController):
                     award += mod
         return max(award, 0)
 
-    def can_increase(self, value: int) -> Decision:
+    def can_increase(self, value: int = 1) -> Decision:
         # Players can't take flaws after character creation, except by asking plot.
         if not self.character.can_respend:
             return _NO_RESPEND

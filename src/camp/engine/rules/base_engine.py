@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from functools import cached_property
 from functools import total_ordering
 from typing import Any
+from typing import Iterable
+from typing import Literal
 from typing import Type
 
 import pydantic
@@ -35,6 +37,65 @@ class CharacterController(ABC):
         Subclasses should override this.
         """
 
+    def list_features(
+        self,
+        available: bool | None = None,
+        taken: bool | None = None,
+        matcher: base_models.FeatureMatcher | None = None,
+        slot: str | None = None,
+    ) -> Iterable[FeatureEntry]:
+        slot_def: base_models.SlotDef | None = None
+        if slot:
+            slot_def = self.get_slot(slot)
+            if not slot_def:
+                raise ValueError(f"Slot {slot} not present on character")
+        for id, feature_def in self.ruleset.features.items():
+            if (
+                slot_def
+                and slot_def.matcher
+                and not slot_def.matcher.matches(feature_def)
+            ):
+                continue
+            if matcher and not matcher.matches(feature_def):
+                continue
+
+            try:
+                controller = self.feature_controller(id)
+            except ValueError:
+                # TODO: Log it or fail or something.
+                # Until all feature types are implemented this would always fail, so shore
+                # things up a bit before changing this.
+                continue
+
+            if self._list_features_matcher(controller, id, slot, available, taken):
+                yield controller.get_feature_entry(slot=slot)
+            if controller.option_def:
+                for option in self.get_options(id):
+                    full_id = base_models.full_id(id, option)
+                    option_controller = self.feature_controller(full_id)
+                    if self._list_features_matcher(
+                        option_controller, full_id, slot, available, taken
+                    ):
+                        yield option_controller.get_feature_entry(slot=slot)
+
+    def _list_features_matcher(
+        self,
+        controller: FeatureController,
+        id: str,
+        slot: str,
+        available: bool,
+        taken: bool,
+    ) -> bool:
+        is_available = bool(self.can_purchase(base_models.Purchase(id=id, slot=slot)))
+        is_taken = controller.is_taken
+        return not (
+            (taken is not None and taken != is_taken)
+            or (available is not None and available != is_available)
+        )
+
+    def get_slot(self, slot_id) -> base_models.SlotDef | None:
+        return None
+
     def has_prop(self, expr: str | base_models.PropExpression) -> bool:
         """Check whether the character has _any_ property (feature, attribute, etc) with the given name.
 
@@ -43,6 +104,27 @@ class CharacterController(ABC):
         """
         expr = base_models.PropExpression.parse(expr)
         return expr.prop in self.engine.attribute_map
+
+    @abstractmethod
+    def controller(self, id: str) -> PropertyController:
+        ...
+
+    def feature_controller(self, id: str) -> FeatureController:
+        controller = self.controller(id)
+        if isinstance(controller, FeatureController):
+            return controller
+        raise ValueError(
+            f"Expected {id} to be a FeatureController but was {controller}"
+        )
+
+    def has_slot(self, id: str) -> bool:
+        return False
+
+    def get_feature_entry(self, id: str, slot: str | None = None) -> FeatureEntry:
+        if controller := self.controller(id):
+            if isinstance(controller, FeatureController):
+                return controller.get_feature_entry(slot)
+        raise ValueError(f"{id} is not a recognized feature.")
 
     def get_attribute(
         self, expr: str | base_models.PropExpression
@@ -225,10 +307,14 @@ class CharacterController(ABC):
 @total_ordering
 class PropertyController(ABC):
     id: str
+    full_id: str
+    expression: base_models.PropExpression
     character: CharacterController
 
-    def __init__(self, prop_id: str, character: CharacterController):
-        self.id = prop_id
+    def __init__(self, full_id: str, character: CharacterController):
+        self.expression = base_models.PropExpression.parse(full_id)
+        self.full_id = full_id
+        self.id = self.expression.prop
         self.character = character
 
     @abstractproperty
@@ -276,10 +362,35 @@ class FeatureController(PropertyController):
             return 101
         return self.definition.ranks
 
-    def can_increase(self, value: int) -> Decision:
+    @property
+    def option(self) -> str | None:
+        return self.expression.option
+
+    @property
+    def option_def(self) -> base_models.OptionDef | None:
+        return self.definition.option
+
+    @property
+    def is_taken(self) -> bool:
+        if self.option_def and not self.option:
+            # The "core" controller for an option feature is never
+            # considered taken. Only its subfeatures can be "taken", even though
+            # the controller reports a value for it for purposes of the requirement parser.
+            return False
+        return self.value > 0
+
+    @cached_property
+    def feature_type(self) -> str:
+        return self.definition.type
+
+    @property
+    def taken_options(self) -> dict[str, int]:
+        return {}
+
+    def can_increase(self, value: int = 1) -> Decision:
         return Decision.UNSUPPORTED
 
-    def can_decrease(self, value: int) -> Decision:
+    def can_decrease(self, value: int = 1) -> Decision:
         return Decision.UNSUPPORTED
 
     def increase(self, value: int) -> Decision:
@@ -288,14 +399,54 @@ class FeatureController(PropertyController):
     def decrease(self, value: int) -> Decision:
         return Decision.UNSUPPORTED
 
+    def cost_for(self, ranks: int, slot: str | None = None) -> int:
+        return 0
+
     @property
-    def taken_options(self) -> dict[str, int]:
-        return {}
+    def currency(self) -> str | None:
+        return None
+
+    def get_feature_entry(self, slot: str | None = None) -> FeatureEntry:
+        available_ranks: int = 0
+        if not self.option_def or self.option:
+            if rd := self.can_increase():
+                available_ranks = rd.amount or 0
+            return FeatureEntry(
+                id=self.full_id,
+                name=str(self),
+                ranks=self.value,
+                max_ranks=self.max_ranks,
+                available_ranks=available_ranks,
+                cost=[self.cost_for(r, slot=slot) for r in range(available_ranks)],
+                can_decrease=self.can_decrease(),
+            )
+        else:
+            if (rd := self.can_increase()) and rd.needs_option:
+                available_ranks = rd.amount or 0
+            return FeatureEntry(
+                id=self.id,
+                name=str(self),
+                ranks=0,
+                max_ranks=self.max_ranks,
+                available_ranks=self.max_ranks,
+                cost=[self.cost_for(r, slot=slot) for r in range(available_ranks)],
+                option_freeform=self.option_def.freeform,
+                option_list=list(
+                    self.character.options_values_for_feature(
+                        self.id, exclude_taken=True
+                    )
+                ),
+                can_decrease=False,
+            )
 
     def __str__(self) -> str:
         if self.expr.option:
-            return f"{self.definition.name} ({self.expr.option}): {self.value}"
-        return f"{self.definition.name}: {self.value}"
+            name = f"{self.definition.name} [{self.expr.option}]"
+        else:
+            name = f"{self.definition.name}"
+        if isinstance(self.definition.ranks, str) or self.definition.ranks > 1:
+            name += f": x{self.value}"
+        return name
 
 
 class AttributeController(PropertyController):
@@ -385,3 +536,18 @@ class PropagationData:
 
     def __bool__(self) -> bool:
         return bool(self.grants or self.discount)
+
+
+@dataclass
+class FeatureEntry:
+    id: str
+    name: str
+    ranks: int
+    max_ranks: Literal["unlimited"] | int = 1
+    available_ranks: int = 1
+    cost: list[int] | None = None
+    can_decrease: bool = False
+    # For features with options
+    needs_option: bool = False
+    option_list: list[str] | None = None
+    option_freeform: bool = False
