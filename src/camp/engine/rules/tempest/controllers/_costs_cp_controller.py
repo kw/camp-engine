@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from typing import Final
 
 from camp.engine.rules.decision import Decision
 
@@ -9,6 +10,8 @@ from . import feature_controller
 
 
 class CostsCharacterPointsController(feature_controller.FeatureController):
+    currency: Final[str] = "cp"
+
     @property
     def cost_def(self) -> defs.CostDef:
         if not hasattr(self.definition, "cost"):
@@ -29,7 +32,7 @@ class CostsCharacterPointsController(feature_controller.FeatureController):
         else:
             raise NotImplementedError(f"Don't know how to compute cost with {cd}")
 
-    def max_rank_increase(self, available_cp: int = -1) -> int:
+    def _max_rank_increase(self, available_cp: int = -1) -> int:
         if available_cp < 0:
             available_cp = self.character.cp.value
         available_ranks = self.max_ranks - self.value
@@ -52,7 +55,7 @@ class CostsCharacterPointsController(feature_controller.FeatureController):
             case _:
                 raise NotImplementedError(f"Don't know how to compute cost with {cd}")
 
-    def can_increase(self, value: int) -> Decision:
+    def can_increase(self, value: int = 1) -> Decision:
         if not (rd := super().can_increase(value)):
             return rd
         # Can the character afford the purchase?
@@ -62,7 +65,7 @@ class CostsCharacterPointsController(feature_controller.FeatureController):
             return Decision(
                 success=False,
                 reason=f"Need {cp_delta} CP to purchase, but only have {current_cp}",
-                amount=self.max_rank_increase(current_cp.value),
+                amount=self._max_rank_increase(current_cp.value),
             )
         return Decision.SUCCESS
 

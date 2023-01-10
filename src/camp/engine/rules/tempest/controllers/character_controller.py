@@ -297,6 +297,15 @@ class TempestCharacter(base_engine.CharacterController):
                 return controller
         return None
 
+    def controller(self, id) -> base_engine.PropertyController:
+        try:
+            c = self._controller_for_property(id)
+        except NotImplementedError:
+            raise ValueError(f"Controller not yet implemented for {id}")
+        if c:
+            return c
+        raise ValueError(f"Can't find property controller for {id}")
+
     def clear_caches(self):
         super().clear_caches()
         self._classes = {}

@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from abc import abstractproperty
-from functools import cached_property
 from typing import Iterable
 
 from camp.engine.rules import base_engine
-from camp.engine.rules.base_models import OptionDef
 from camp.engine.rules.base_models import PropExpression
 from camp.engine.rules.decision import Decision
 
@@ -19,32 +17,16 @@ _NO_RESPEND = Decision(success=False, reason="Respend not currently available.")
 class FeatureController(base_engine.FeatureController):
     character: character_controller.TempestCharacter
     definition: defs.BaseFeatureDef
-    expression: PropExpression
-    full_id: str
     _effective_ranks: int | None
     _granted_ranks: int
     _discount: int
 
     def __init__(self, full_id: str, character: character_controller.TempestCharacter):
-        self.expression = PropExpression.parse(full_id)
-        self.full_id = full_id
-        super().__init__(self.expression.prop, character)
+        super().__init__(full_id, character)
         self.definition = character.ruleset.features[self.id]
         self._effective_ranks = None
         self._granted_ranks = 0
         self._discount = 0
-
-    @cached_property
-    def feature_type(self) -> str:
-        return self.definition.type
-
-    @property
-    def option(self) -> str | None:
-        return self.expression.option
-
-    @property
-    def option_def(self) -> OptionDef | None:
-        return self.definition.option
 
     @property
     def taken_options(self) -> dict[str, int]:
@@ -119,7 +101,7 @@ class FeatureController(base_engine.FeatureController):
         if self.full_id not in feats:
             feats[self.full_id] = self
 
-    def can_increase(self, value: int) -> Decision:
+    def can_increase(self, value: int = 1) -> Decision:
         if value <= 0:
             return _MUST_BE_POSITIVE
         current = self.value
@@ -161,7 +143,7 @@ class FeatureController(base_engine.FeatureController):
             )
         return Decision.SUCCESS
 
-    def can_decrease(self, value: int) -> Decision:
+    def can_decrease(self, value: int = 1) -> Decision:
         if not self.character.can_respend:
             return _NO_RESPEND
         if value < 1:

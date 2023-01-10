@@ -528,6 +528,15 @@ class FeatureMatcher(BaseModel):
         return True
 
 
+class SlotDef(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+    limit: int | Literal["unlimited"] = 1
+    discount: int | Literal["free"] = "free"
+    matcher: FeatureMatcher | None = None
+
+
 class CharacterMetadata(BaseModel):
     """Overarching character data.
 
