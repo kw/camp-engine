@@ -337,7 +337,7 @@ if __name__ == "__main__":
             print(f"Ruleset {ruleset.name} parsed successfully.")
             print("Features:")
             current_type = None
-            for (id, feature) in sorted(
+            for id, feature in sorted(
                 ruleset.features.items(), key=lambda item: item[1].type
             ):
                 if current_type != feature.type:
