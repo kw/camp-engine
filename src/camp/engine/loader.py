@@ -61,7 +61,7 @@ def load_ruleset(
             )
         )
     feature_types = _feature_model_map(feature_defs)
-    feature_dict: FeatureTypeMap = {}
+    feature_dict: dict[str, base_models.BaseFeatureDef] = {}
     bad_defs: list[base_models.BadDefinition] = []
     for subpath in _iter_dirs(path):
         for model in _parse_directory(
@@ -69,14 +69,18 @@ def load_ruleset(
         ):
             if isinstance(model, base_models.BadDefinition):
                 bad_defs.append(model)
-            elif model.id in ruleset.features or model.id in ruleset.attribute_map:
+            elif duplicate := (
+                ruleset.features.get(model.id)
+                or feature_dict.get(model.id)
+                or ruleset.attribute_map.get(model.id)
+            ):
                 bad_defs.append(
                     base_models.BadDefinition(
                         path=model.def_path,
                         data=model.dump(as_json=False),
                         raw_data=None,
                         exception_type="NonUniqueId",
-                        exception_message=f"Non-unique ID {model.id}",
+                        exception_message=f"Non-unique ID {model.id}. Existing: {duplicate}",
                     )
                 )
             else:
@@ -337,7 +341,7 @@ if __name__ == "__main__":
             print(f"Ruleset {ruleset.name} parsed successfully.")
             print("Features:")
             current_type = None
-            for (id, feature) in sorted(
+            for id, feature in sorted(
                 ruleset.features.items(), key=lambda item: item[1].type
             ):
                 if current_type != feature.type:

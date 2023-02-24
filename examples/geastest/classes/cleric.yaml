@@ -4,10 +4,10 @@ sphere: divine
 starting_features:
   - caster-starting-b1
   - caster-starting-b2
-  - starting-feature-b
+  - cleric-starting-feature-b
 multiclass_features:
   - caster-starting-b2
-  - multiclass-feature-b
+  - cleric-multiclass-feature-b
 level_table_columns:
   prepared: {name: Prepared Spells, type: local}
   spells: {name: "Total Spell-Slots per Tier\n(Novice/Intermediate/Adept/Master)", type: power_slots}
@@ -19,3 +19,13 @@ levels:
   5: {prepared: 5, spells: [5]}
   6: {prepared: 6, spells: [6]}
   7: {prepared: 7, spells: [6, 1]}
+---
+name: Cleric Starting Feature B
+type: subfeature
+id: cleric-starting-feature-b
+description: It's a cool feature, but for divine casters
+---
+name: Cleric Multiclass Feature B
+type: subfeature
+id: cleric-multiclass-feature-b
+description: It's a less cool feature, but for divine casters

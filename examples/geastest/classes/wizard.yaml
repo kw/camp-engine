@@ -4,10 +4,10 @@ sphere: arcane
 starting_features:
   - caster-starting-a1
   - caster-starting-a2
-  - starting-feature-a
+  - wizard-starting-feature-a
 multiclass_features:
   - caster-starting-a2
-  - multiclass-feature-a
+  - wizard-multiclass-feature-a
 level_table_columns:
   spikes: {name: Spikes, type: attribute}
   prepared: {name: Prepared Spells, type: local}
@@ -23,12 +23,12 @@ levels:
   6: {spikes: 1, prepared: 7, cantrips: 2, spells: [6], cp: 10}
   7: {spikes: 1, prepared: 8, cantrips: 2, spells: [6, 1], cp: 12}
 ---
-id: starting-feature-a
+id: wizard-starting-feature-a
 type: subfeature
-name: Starting Feature A
+name: Wizard Starting Feature
 description: It's a cool feature, but for arcane casters
 ---
-id: multiclass-feature-a
+id: wizard-multiclass-feature-a
 type: subfeature
-name: Multiclass Feature A
+name: Wizard Multiclass Feature
 description: It's a less cool feature, but for arcane casters
