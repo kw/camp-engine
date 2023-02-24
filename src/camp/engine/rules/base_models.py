@@ -22,7 +22,7 @@ from .decision import Decision
 
 _REQ_SYNTAX = re.compile(
     r"""(?P<prop>[a-zA-Z0-9_-]+)
-    (?:@(?P<tier>-?\d+))?          # Tier, aka "@4"
+    (?:@(?P<slot>-?[a-zA-Z0-9_-]+))?          # Choice, aka "@4"
     (?:\#(?P<option>[a-zA-Z0-9?_-]+))?   # Skill options, aka "#Undead_Lore"
     (?::(?P<value>-?\d+))?       # Minimum value, aka ":5"
     (?:\$(?P<single>-?\d+))?       # Minimum value in single thing, aka "$5"
@@ -154,13 +154,13 @@ class PropExpression(BoolExpr):
             Ex: caster$5 is "at least 5 ranks in a single casting class".
         less_than: "No more than this many ranks". Ex: lore<2 means no more
             than one total ranks of Lore skills.
-        tier: For tiered properties like spell slots. Ex: spell@4 indicates
+        slot: For choice slots and tiered properties like spell slots. Ex: spell@4 indicates
             at least one tier-4 spell slot, while spell@4:3 indicates at least
             three tier-4 spell slots.
     """
 
     prop: str
-    tier: int | None = None
+    slot: str | None = None
     option: str | None = None
     value: int | None = None
     single: int | None = None
@@ -171,7 +171,7 @@ class PropExpression(BoolExpr):
         return full_id(self.prop, self.option)
 
     def evaluate(self, char: base_engine.CharacterController) -> Decision:
-        id = self.unparse(prop=self.prop, tier=self.tier, option=self.option)
+        id = self.unparse(prop=self.prop, slot=self.slot, option=self.option)
         if not char.has_prop(id):
             return Decision(success=False, reason=f"{self!r} [{id} not present]")
         ranks = char.get_prop(id)
@@ -207,14 +207,14 @@ class PropExpression(BoolExpr):
         if match := _REQ_SYNTAX.fullmatch(req):
             groups = match.groupdict()
             prop = groups["prop"]
-            tier = int(t) if (t := groups.get("tier")) else None
+            slot = t if (t := groups.get("slot")) else None
             option = o.replace("_", " ") if (o := groups.get("option")) else None
             value = int(m) if (m := groups.get("value")) else None
             single = int(s) if (s := groups.get("single")) else None
             less_than = int(lt) if (lt := groups.get("less_than")) else None
             return cls(
                 prop=prop,
-                tier=tier,
+                slot=slot,
                 option=option,
                 value=value,
                 single=single,
@@ -226,15 +226,15 @@ class PropExpression(BoolExpr):
     def unparse(
         cls,
         prop: str,
-        tier: int | None = None,
+        slot: str | None = None,
         option: str | None = None,
         value: int | None = None,
         single: int | None = None,
         less_than: int | None = None,
     ):
         req = prop
-        if tier:
-            req += f"@{tier}"
+        if slot:
+            req += f"@{slot}"
         if option:
             req += f"#{option.replace(' ', '_')}"
         if value:
@@ -248,7 +248,7 @@ class PropExpression(BoolExpr):
     def __repr__(self) -> str:
         return self.unparse(
             prop=self.prop,
-            tier=self.tier,
+            slot=self.slot,
             option=self.option,
             value=self.value,
             single=self.single,
@@ -457,7 +457,7 @@ class BaseRuleset(BaseModel, ABC):
 class FeatureMatcher(BaseModel):
     """Matcher for checking if a particular feature can be used in some context.
 
-    Generally this is used in slot definitions that want to say something like
+    Generally this is used in choice definitions that want to say something like
     "Pick any perk" or "Choose any martial skill" or the like.
 
     Attributes:
@@ -526,15 +526,6 @@ class FeatureMatcher(BaseModel):
                 return False
         # If none of the filters was negative, this is a match
         return True
-
-
-class SlotDef(BaseModel):
-    id: str
-    name: str
-    description: str | None = None
-    limit: int | Literal["unlimited"] = 1
-    discount: int | Literal["free"] = "free"
-    matcher: FeatureMatcher | None = None
 
 
 class CharacterMetadata(BaseModel):
@@ -636,13 +627,12 @@ class Purchase(BaseModel):
         option: Option value, if any
         ranks: Number of ranks to purchase. If the feature does not have ranks,
             use the default of "1".
-        slot: If using a slot to purchase this feature, identify which one.
+        choice: If using a choice slot to purchase this feature, identify which one.
     """
 
     id: str
     option: str | None = None
     ranks: int = 1
-    slot: str | None = None
 
     @property
     def full_id(self) -> str:

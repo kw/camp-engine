@@ -1,6 +1,16 @@
 name: Patron
 cost: 4
-# TODO(#16): Draw the rest of the owl.
+choices:
+  discount:
+    name: Patron Discount
+    limit: unlimited
+    description: >
+      Perks purchased with this slot cost -1 CP (minimum 1) per rank. If Patron is revoked, any
+      perks purchased with this discount are suppressed.
+    discount: 1
+    matcher:
+      type: perk
+      tags: -no-patron
 description: >
   The character is under the patronage of a powerful supernatural creature.
   This may be a Fae Lady, a god or goddess, a Great Power, an elder demon, or any

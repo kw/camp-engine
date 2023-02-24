@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import cached_property
 from typing import Type
 
@@ -28,3 +29,11 @@ class TempestEngine(base_engine.Engine):
         return {
             k: f for (k, f) in self.feature_defs.items() if isinstance(f, defs.SkillDef)
         }
+
+
+@dataclass
+class PropagationData(base_engine.PropagationData):
+    discount: list[defs.Discount] | None = None
+
+    def __bool__(self) -> bool:
+        return super().__bool__() or bool(self.discount)

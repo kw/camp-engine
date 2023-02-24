@@ -102,18 +102,18 @@ def test_overcome_flaw(character: TempestCharacter):
     assert character.get_prop("basic-flaw") == 1
     assert character.cp.flaw_overcome_cp == 0
 
-    character.flaws["basic-flaw"].overcame = True
+    character.flaws["basic-flaw"].overcome = True
     assert character.cp.flaw_award_cp == 1
     assert character.cp.flaw_overcome_cp == 3
     assert character.get_prop("basic-flaw") == 0
 
 
-def test_remove_flaw(character: TempestCharacter):
+def test_suppress_flaw(character: TempestCharacter):
     character.purchase("basic-flaw")
     assert character.get_prop("basic-flaw") == 1
     assert character.cp.flaw_overcome_cp == 0
 
-    character.flaws["basic-flaw"].removed = True
+    character.flaws["basic-flaw"].model.plot_suppressed = True
     assert character.cp.flaw_award_cp == 1
     assert character.cp.flaw_overcome_cp == 0
     assert character.get_prop("basic-flaw") == 0
@@ -124,7 +124,7 @@ def test_no_cp_awarded(character: TempestCharacter):
     assert character.get_prop("basic-flaw") == 1
     assert character.cp.flaw_overcome_cp == 0
 
-    character.flaws["basic-flaw"].cp_awarded = False
+    character.flaws["basic-flaw"].model.plot_free = True
     assert character.cp.flaw_award_cp == 0
     assert character.cp.flaw_overcome_cp == 0
     assert character.get_prop("basic-flaw") == 1

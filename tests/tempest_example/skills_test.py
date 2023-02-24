@@ -260,6 +260,7 @@ def test_skill_with_one_grant(character: TempestCharacter):
 
 
 def test_skill_with_one_grant_sellback(character: TempestCharacter):
+    assert not character.meets_requirements("granted-skill")
     character.purchase("grants-skill")
     assert character.meets_requirements("granted-skill")
     assert character.purchase("grants-skill:-1")

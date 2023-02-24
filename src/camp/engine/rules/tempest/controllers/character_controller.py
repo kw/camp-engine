@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from functools import cached_property
+from typing import Iterable
 from typing import Mapping
 
 from camp.engine import utils
 from camp.engine.rules import base_engine
+from camp.engine.rules import base_models
 from camp.engine.rules.base_models import PropExpression
 from camp.engine.rules.base_models import Purchase
 from camp.engine.rules.decision import Decision
@@ -16,18 +18,13 @@ from . import attribute_controllers
 from . import class_controller
 from . import feature_controller
 from . import flaw_controller
-from . import perk_controller
-from . import skill_controller
 
 
 class TempestCharacter(base_engine.CharacterController):
     model: models.CharacterModel
     engine: engine.TempestEngine
     ruleset: defs.Ruleset
-    _classes: dict[str, class_controller.ClassController] | None = None
-    _skills: dict[str, skill_controller.SkillController] | None = None
-    _perks: dict[str, perk_controller.PerkController] | None = None
-    _flaws: dict[str, flaw_controller.FlawController] | None = None
+    _features: dict[str, feature_controller.FeatureController] | None = None
 
     @property
     def xp(self) -> int:
@@ -116,64 +113,68 @@ class TempestCharacter(base_engine.CharacterController):
     def levels_available(self) -> int:
         return self.xp_level - self.level.value
 
-    @property
-    def primary_class(self) -> str | None:
-        return self.model.primary_class
+    def _feature_models(
+        self, types: str | set[str] | None = None
+    ) -> Iterable[tuple[str, models.FeatureModel]]:
+        is_set = isinstance(types, set)
+        for id, model in self.model.features.items():
+            if (
+                types is None
+                or (is_set and model.type in types)
+                or (not is_set and model.type == types)
+            ):
+                yield id, model
 
     @property
-    def starting_class(self) -> str | None:
-        return self.model.starting_class
+    def primary_class(self) -> class_controller.ClassController | None:
+        for controller in self.classes.values():
+            if controller.is_primary:
+                return controller
+        return None
+
+    @property
+    def starting_class(self) -> class_controller.ClassController | None:
+        for controller in self.classes.values():
+            if controller.is_starting:
+                return controller
+        return None
+
+    @property
+    def features(self) -> dict[str, feature_controller.FeatureController]:
+        if self._features:
+            return self._features
+        feats: dict[str, feature_controller.FeatureController] = {}
+        for id, model in self.model.features.items():
+            controller = self._new_controller_for_type(model.type, id)
+            feats[id] = controller
+        self._features = feats
+        return feats
 
     @property
     def classes(self) -> dict[str, class_controller.ClassController]:
-        """Dict of the character's class controllers.
+        """Dict of the character's class controllers."""
+        return {
+            id: feat
+            for (id, feat) in self.features.items()
+            if isinstance(feat, class_controller.ClassController)
+        }
 
-        The primary class will be first in iteration order.
-        """
-        if self._classes:
-            return self._classes
-        classes: dict[str, class_controller.ClassController] = {}
-        primary = self.model.primary_class
-        if primary:
-            classes[primary] = class_controller.ClassController(primary, self)
+    def feature_def(self, feature_id: str) -> defs.FeatureDefinitions | None:
+        expr = PropExpression.parse(feature_id)
+        return self.ruleset.features.get(expr.prop)
 
-        for id in self.model.classes:
-            if id == primary:
-                # Already added.
-                continue
-            classes[id] = class_controller.ClassController(id, self)
-        self._classes = classes
-        return classes
-
-    @property
-    def skills(self) -> dict[str, skill_controller.SkillController]:
-        if self._skills:
-            return self._skills
-        skills: dict[str, skill_controller.SkillController] = {}
-        for id in self.model.skills:
-            skills[id] = skill_controller.SkillController(id, self)
-        self._skills = skills
-        return skills
-
-    @property
-    def perks(self) -> dict[str, perk_controller.PerkController]:
-        if self._perks:
-            return self._perks
-        perks: dict[str, perk_controller.PerkController] = {}
-        for id in self.model.perks:
-            perks[id] = perk_controller.PerkController(id, self)
-        self._perks = perks
-        return perks
+    def _feature_type(self, feature_id: str) -> str | None:
+        if feature_def := self.feature_def(feature_id):
+            return feature_def.type
+        return None
 
     @property
     def flaws(self) -> dict[str, flaw_controller.FlawController]:
-        if self._flaws:
-            return self._flaws
-        flaws: dict[str, flaw_controller.FlawController] = {}
-        for id in self.model.flaws:
-            flaws[id] = flaw_controller.FlawController(id, self)
-        self._flaws = flaws
-        return flaws
+        return {
+            id: feat
+            for (id, feat) in self.features.items()
+            if isinstance(feat, flaw_controller.FlawController)
+        }
 
     def can_purchase(self, entry: Purchase | str) -> Decision:
         if not isinstance(entry, Purchase):
@@ -188,8 +189,6 @@ class TempestCharacter(base_engine.CharacterController):
         )
 
     def purchase(self, entry: Purchase | str) -> Decision:
-        if not isinstance(entry, Purchase):
-            entry = Purchase.parse(entry)
         if not isinstance(entry, Purchase):
             entry = Purchase.parse(entry)
         if controller := self._controller_for_feature(entry.expression):
@@ -212,26 +211,40 @@ class TempestCharacter(base_engine.CharacterController):
             return controller.value > 0
         return super().has_prop(expr)
 
-    def get_prop(self, expr: str | PropExpression) -> int:
-        expr = PropExpression.parse(expr)
-        if controller := self._controller_for_feature(expr):
+    def get_prop(self, id: str | PropExpression) -> int:
+        expr = PropExpression.parse(id)
+        if controller := self._controller_for_property(expr):
+            if expr.single is not None:
+                return controller.max_value
             return controller.value
         return super().get_prop(expr)
+
+    def get_choice_def(self, id: str | PropExpression) -> base_models.choiceDef | None:
+        expr = PropExpression.parse(id)
+        if feat := self.ruleset.features.get(expr.prop):
+            return feat.choices.get(expr.choice)
+        return None
+
+    def has_choice(self, id: str) -> bool:
+        expr = PropExpression.parse(id)
+        if not expr.choice:
+            raise ValueError(f"ID {id} does not name a choice.")
+        # To have a choice, the character must both have the named feature (including option, if present)
+        # and the feature must actually define a choice with that ID.
+        return self.has_prop(expr.full_id) and self.get_choice_def(id)
 
     def get_options(self, id: str) -> dict[str, int]:
         if controller := self._controller_for_feature(PropExpression.parse(id)):
             return controller.taken_options
         return super().get_options(id)
 
-    @property
-    def features(
-        self,
-    ) -> Mapping[str, Mapping[str, feature_controller.FeatureController]]:
+    def controllers_for_type(
+        self, feature_type: str
+    ) -> Mapping[str, feature_controller.FeatureController]:
         return {
-            "class": self.classes,
-            "skill": self.skills,
-            "perk": self.perks,
-            "flaw": self.flaws,
+            id: feat
+            for (id, feat) in self.features.items()
+            if feat.feature_type == feature_type
         }
 
     @cached_property
@@ -250,21 +263,16 @@ class TempestCharacter(base_engine.CharacterController):
     def divine(self) -> base_engine.AttributeController:
         return attribute_controllers.SumAttribute("divine", self, "class", "divine")
 
-    def _controller_for_type(
+    def _new_controller_for_type(
         self, feature_type: str, id: str
     ) -> feature_controller.FeatureController:
         match feature_type:
             case "class":
                 return class_controller.ClassController(id, self)
-            case "skill":
-                return skill_controller.SkillController(id, self)
             case "flaw":
                 return flaw_controller.FlawController(id, self)
-            case "perk":
-                return perk_controller.PerkController(id, self)
-        raise NotImplementedError(
-            f"Unknown feature controller {feature_type} for feature {id}"
-        )
+            case _:
+                return feature_controller.FeatureController(id, self)
 
     def _controller_for_feature(
         self, expr: PropExpression | str, create: bool = True
@@ -275,13 +283,13 @@ class TempestCharacter(base_engine.CharacterController):
         if not (feature_def := self.ruleset.features.get(expr.prop)):
             return None
         # If this skill is already on the sheet, fetch its controller
-        if (controller_dict := self.features.get(feature_def.type)) and (
+        if (controller_dict := self.controllers_for_type(feature_def.type)) and (
             controller := controller_dict.get(expr.full_id)
         ) is not None:
             return controller
         # Otherwise, create a controller and ask it.
         if create:
-            return self._controller_for_type(feature_def.type, expr.full_id)
+            return self._new_controller_for_type(feature_def.type, expr.full_id)
         return None
 
     def _controller_for_property(
@@ -290,6 +298,8 @@ class TempestCharacter(base_engine.CharacterController):
         if isinstance(expr, str):
             expr = PropExpression.parse(expr)
         if expr.prop in self.ruleset.features:
+            if expr.slot:
+                return self.get_choice_controller(repr(expr))
             return self._controller_for_feature(expr, create=create)
         elif expr.prop in self.ruleset.attribute_map:
             controller = self.get_attribute(expr)
@@ -306,9 +316,9 @@ class TempestCharacter(base_engine.CharacterController):
             return c
         raise ValueError(f"Can't find property controller for {id}")
 
+    def feature_controller(self, id: str) -> feature_controller.FeatureController:
+        return super().feature_controller(id)
+
     def clear_caches(self):
         super().clear_caches()
-        self._classes = {}
-        self._skills = {}
-        self._flaws = {}
-        self._perks = {}
+        self._features = {}

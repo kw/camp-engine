@@ -54,7 +54,7 @@ class SumAttribute(AttributeController):
     @property
     def value(self) -> int:
         total: int = super().value
-        for fc in self.character.features[self._feature_type].values():
+        for fc in self.character.controllers_for_type(self._feature_type).values():
             if self._condition is None or getattr(fc, self._condition, True):
                 total += fc.value
         return total
@@ -62,7 +62,7 @@ class SumAttribute(AttributeController):
     @property
     def max_value(self) -> int:
         current: int = 0
-        for fc in self.character.features[self._feature_type].values():
+        for fc in self.character.controllers_for_type(self._feature_type).values():
             if (self._condition is None or getattr(fc, self._condition, True)) and (
                 v := fc.value
             ) > current:
@@ -81,28 +81,30 @@ class CharacterPointController(AttributeController):
 
     @property
     def spent_cp(self) -> int:
-        return self.skill_spent_cp + self.perk_spent_cp + self.flaw_overcome_cp
+        return self.purchase_spent_cp + self.flaw_overcome_cp
 
     @property
-    def skill_spent_cp(self) -> int:
+    def purchase_spent_cp(self) -> int:
         spent: int = 0
-        for skill in list(self.character.skills.values()):
-            spent += skill.cp_cost
-        return spent
-
-    @property
-    def perk_spent_cp(self) -> int:
-        spent: int = 0
-        for perk in list(self.character.perks.values()):
-            spent += perk.cp_cost
+        for feat in list(self.character.features.values()):
+            if feat.currency == "cp":
+                spent += feat.cost
         return spent
 
     @property
     def flaw_award_cp(self) -> int:
-        total: int = 0
-        for flaw in list(self.character.flaws.values()):
-            total += flaw.award_cp
-        return min(total, self.character.ruleset.flaw_cp_cap)
+        # If a flaw was elected by the player, there is a cap
+        # to the amount of points they can gain from it.
+        # On the other hand, if plot applies the flaw and is 'nice'
+        # enough to award points for it, those bypass the cap.
+        player_total: int = 0
+        plot_total: int = 0
+        for flaw in self.character.flaws.values():
+            if flaw.model.plot_added:
+                plot_total += flaw.award_cp
+            else:
+                player_total += flaw.award_cp
+        return min(player_total, self.character.ruleset.flaw_cp_cap) + plot_total
 
     @property
     def flaw_overcome_cp(self) -> int:
