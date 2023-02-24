@@ -42,20 +42,8 @@ class CharacterController(ABC):
         available: bool | None = None,
         taken: bool | None = None,
         matcher: base_models.FeatureMatcher | None = None,
-        slot: str | None = None,
     ) -> Iterable[FeatureEntry]:
-        slot_def: base_models.SlotDef | None = None
-        if slot:
-            slot_def = self.get_slot(slot)
-            if not slot_def:
-                raise ValueError(f"Slot {slot} not present on character")
         for id, feature_def in self.ruleset.features.items():
-            if (
-                slot_def
-                and slot_def.matcher
-                and not slot_def.matcher.matches(feature_def)
-            ):
-                continue
             if matcher and not matcher.matches(feature_def):
                 continue
 
@@ -67,34 +55,30 @@ class CharacterController(ABC):
                 # things up a bit before changing this.
                 continue
 
-            if self._list_features_matcher(controller, id, slot, available, taken):
-                yield controller.get_feature_entry(slot=slot)
+            if self._list_features_matcher(controller, id, available, taken):
+                yield controller.get_feature_entry()
             if controller.option_def:
                 for option in self.get_options(id):
                     full_id = base_models.full_id(id, option)
                     option_controller = self.feature_controller(full_id)
                     if self._list_features_matcher(
-                        option_controller, full_id, slot, available, taken
+                        option_controller, full_id, available, taken
                     ):
-                        yield option_controller.get_feature_entry(slot=slot)
+                        yield option_controller.get_feature_entry()
 
     def _list_features_matcher(
         self,
         controller: FeatureController,
         id: str,
-        slot: str,
         available: bool,
         taken: bool,
     ) -> bool:
-        is_available = bool(self.can_purchase(base_models.Purchase(id=id, slot=slot)))
+        is_available = bool(self.can_purchase(id))
         is_taken = controller.is_taken
         return not (
             (taken is not None and taken != is_taken)
             or (available is not None and available != is_available)
         )
-
-    def get_slot(self, slot_id) -> base_models.SlotDef | None:
-        return None
 
     def has_prop(self, expr: str | base_models.PropExpression) -> bool:
         """Check whether the character has _any_ property (feature, attribute, etc) with the given name.
@@ -117,24 +101,21 @@ class CharacterController(ABC):
             f"Expected {id} to be a FeatureController but was {controller}"
         )
 
-    def has_slot(self, id: str) -> bool:
-        return False
-
-    def get_feature_entry(self, id: str, slot: str | None = None) -> FeatureEntry:
+    def get_feature_entry(self, id: str) -> FeatureEntry:
         if controller := self.controller(id):
             if isinstance(controller, FeatureController):
-                return controller.get_feature_entry(slot)
+                return controller.get_feature_entry()
         raise ValueError(f"{id} is not a recognized feature.")
 
     def get_attribute(
         self, expr: str | base_models.PropExpression
-    ) -> AttributeController | int | None:
+    ) -> PropertyController | int | None:
         expr = base_models.PropExpression.parse(expr)
         attr: base_models.Attribute
         if attr := self.engine.attribute_map.get(expr.prop):
             # There are a few different ways an attribute might be stored or computed.
             if hasattr(self, attr.property_name or attr.id):
-                attr_value: AttributeController | int = getattr(
+                attr_value: PropertyController | int = getattr(
                     self, attr.property_name or attr.id
                 )
                 return attr_value
@@ -156,7 +137,7 @@ class CharacterController(ABC):
         """
         expr = base_models.PropExpression.parse(expr)
         if attr := self.get_attribute(expr):
-            if isinstance(attr, AttributeController):
+            if isinstance(attr, PropertyController):
                 if expr.single is not None:
                     return attr.max_value
                 return attr.value
@@ -327,7 +308,6 @@ class PropertyController(ABC):
 
     def propagate(self, data: PropagationData):
         """Used to accept things like granted ranks from other sources."""
-        raise NotImplementedError(f"{self} does not implement propagation {data}.")
 
     def __eq__(self, other: Any) -> bool:
         if self is other:
@@ -399,14 +379,11 @@ class FeatureController(PropertyController):
     def decrease(self, value: int) -> Decision:
         return Decision.UNSUPPORTED
 
-    def cost_for(self, ranks: int, slot: str | None = None) -> int:
-        return 0
-
     @property
     def currency(self) -> str | None:
         return None
 
-    def get_feature_entry(self, slot: str | None = None) -> FeatureEntry:
+    def get_feature_entry(self) -> FeatureEntry:
         available_ranks: int = 0
         if not self.option_def or self.option:
             if rd := self.can_increase():
@@ -417,7 +394,6 @@ class FeatureController(PropertyController):
                 ranks=self.value,
                 max_ranks=self.max_ranks,
                 available_ranks=available_ranks,
-                cost=[self.cost_for(r, slot=slot) for r in range(available_ranks)],
                 can_decrease=self.can_decrease(),
             )
         else:
@@ -429,7 +405,6 @@ class FeatureController(PropertyController):
                 ranks=0,
                 max_ranks=self.max_ranks,
                 available_ranks=self.max_ranks,
-                cost=[self.cost_for(r, slot=slot) for r in range(available_ranks)],
                 option_freeform=self.option_def.freeform,
                 option_list=list(
                     self.character.options_values_for_feature(
@@ -531,11 +506,11 @@ class Engine(ABC):
 
 @dataclass
 class PropagationData:
+    source: str
     grants: int = 0
-    discount: int = 0
 
     def __bool__(self) -> bool:
-        return bool(self.grants or self.discount)
+        return bool(self.grants)
 
 
 @dataclass

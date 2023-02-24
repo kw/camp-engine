@@ -157,7 +157,7 @@ def test_multiclass_sellback(character: TempestCharacter):
     assert character.purchase("wizard:5")
     assert character.purchase("fighter:5")
     assert character.level == 10
-    assert character.starting_class == "wizard"
+    assert character.starting_class.id == "wizard"
 
     # You can't sell back your starting class below level 2
     # unless it's the last class you have.

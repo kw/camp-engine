@@ -37,7 +37,7 @@ def test_prarse_propreq_values():
     """Test that, when parsed, the PropReq has the expected values."""
     p = PropExpression.parse("feature-id@1#My_Option:23$34<450")
     assert p.prop == "feature-id"
-    assert p.tier == 1
+    assert p.slot == "1"
     assert p.option == "My Option"
     assert p.value == 23
     assert p.single == 34
@@ -83,7 +83,7 @@ def test_parse_req():
                 any=[
                     PropExpression(prop="four", value=4),
                     PropExpression(prop="five", single=5),
-                    AllOf(all=[PropExpression(prop="six", tier=6)]),
+                    AllOf(all=[PropExpression(prop="six", slot=6)]),
                 ]
             ),
             NoneOf(

@@ -1,58 +1,97 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field
 
 from .. import base_models
 
 
-class FlawModel(base_models.BaseModel):
-    """Data needed to model a flaw on a character sheet.
-
-    There are a few journeys to consider:
-
-    1. Player selects flaws at character creation and receives Award CP for them.
-       Later, the player chooses to overcome the flaw for Award CP + 2. Alternatively,
-       staff may remove the flaw for plot reasons at no cost, while keeping the initial
-       award.
-    2. Staff impose a flaw on a character for plot reasons. No CP are awarded.
-       Staff allow the flaw to be overcome for the normal overcome price if the
-       player desires, or removed upon completion of a quest.
-    3. The player requests that staff add a particular flaw. Staff add the flaw and
-       award the flaw CP, assuming the character hasn't exceeded their bonus CP quota.
-    4. The player adds a flaw during character creation, but removes it later during character
-       creation. For this, we just delete the flaw model.
-
-    Like skills, flaws can have an option attached, but it can stay in the dictionary key.
-    They might also have a description, such as for an Honor Debt (though it should be
-    explained at more length in a backstory).
-
-    We should be able to cover this with the following fields.
+class FeatureModel(base_models.BaseModel):
+    """Data needed to model a generic feature on a character sheet.
 
     Attributes:
-      added_by_player: True if the player intentionally added it. False if plot added it
-         for plot reasons. If plot adds it at the player's request, it's reasonable to set
-         it to True. Either way, there's no mechanical effect, it's just for record keeping.
-      cp_awarded: True if the PC gets CP for this (but not over the flaw cap). Usually
-         only true if the player added it, but plot-granted flaws could also, I guess?
-      can_overcome: The player can choose to overcome the flaw at a cost. The flaw CP are lost,
-         and the player pays an additional 2 CP for this privilege.
-      overcame: True if the player has paid the overcome price. The model must remain to
-         represent the CP expenditure.
-      removed: True if plot has deactivated this flaw. Similar to overcome, but the player
-         doesn't pay anything, and (unless plot toggles cp_awarded) the granted CP remains.
+        type: Set to the type of power (as per the feature definition's type). If a model
+            subclass specifies a specific type literal (see FlawModel), that subclass model
+            will be loaded instead.
+        ranks: Number of ranks purchased. Occasionally, a power with 0 ranks will need to be
+            recorded. Typically this happens if the character has a power that grants ranks
+            in another power, _and_ something else about it needs to be recorded (like a Notes field
+            or a choice).
+        notes: Notes about this feature added by the player.
+        choices: If this power has choices, what has been chosen?
+        plot_added: Marks this power as added by plot. In some cases, sheet mechanics may vary slightly
+            depending on whether plot forcibly added it.
+        plot_notes: Notes about this feature added by plot. Not shown to players.
+        plot_free: If true and this power comes with a cost or award (in CP or BP) then it does
+            not apply here. Generally used when plot wants to grant a flaw, perk, role, etc
+            as a reward or punishment.
+        plot_suppressed: The power is marked off on the character sheet and no longer functions.
+            This usually only happens with Patron (and perks obtained from it) and Religions.
+            Powers may appear suppressed for other reasons (for example, if one of their prerequisites
+            becomes suppressed or otherwise removed).
     """
 
-    added_by_player: bool = True
-    cp_awarded: bool = True
-    can_overcome: bool = True
-    overcame: bool = False
-    removed: bool = False
+    type: str
+    ranks: int = 0
+    notes: str | None = None
+    choices: dict[str, list[str]] | None = None
+    plot_added: bool = False
+    plot_notes: str | None = None
+    plot_free: bool = False
+    plot_suppressed: bool = False
+
+    def should_keep(self) -> bool:
+        """Should return True if the model has been populated with something worth saving."""
+        return bool(
+            self.ranks
+            or self.notes
+            or self.choices
+            or self.plot_added
+            or self.plot_notes
+            or self.plot_free
+        )
+
+
+class FlawModel(FeatureModel):
+    """
+    Flaws need extra state for their overcome status and extra flags for plot override behavior.
+
+    Attributes:
+        overcome: Records whether the flaw has been overcome. The price is usually the
+            original award price +2, but see overcome_award_override.
+        plot_disable_overcome: Plot may prevent a flaw from being overcome. Usually this happens
+            when the flaw is added as a penalty by plot that must be resolved through gameplay.
+        overcome_award_override: Used when plot wants to change the cost of overriding a flaw.
+            If the flaw was added by plot
+    """
+
+    type: Literal["flaw"] = "flaw"
+    overcome: bool = False
+    plot_disable_overcome: bool = False
+    overcome_award_override: int | None = None
+
+    def should_keep(self) -> bool:
+        return (
+            super().should_keep()
+            or self.overcome
+            or self.plot_disable_overcome
+            or self.overcome_award_override is not None
+        )
+
+
+class ClassModel(FeatureModel):
+    type: Literal["class"] = "class"
+    primary: bool = False
+    starting: bool = False
+
+    def should_keep(self) -> bool:
+        return super().should_keep() or self.primary or self.starting
+
+
+# Subclass models must be added here ahead of FeatureModel to deserialize properly.
+FeatureModelTypes = ClassModel | FlawModel | FeatureModel
 
 
 class CharacterModel(base_models.CharacterModel):
-    primary_class: str | None = None
-    starting_class: str | None = None
-    classes: dict[str, int] = Field(default_factory=dict)
-    skills: dict[str, int] = Field(default_factory=dict)
-    perks: dict[str, int] = Field(default_factory=dict)
-    flaws: dict[str, FlawModel] = Field(default_factory=dict)
+    features: dict[str, FeatureModelTypes] = Field(default_factory=dict)

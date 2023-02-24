@@ -6,7 +6,6 @@ import pytest
 
 from camp.engine import loader
 from camp.engine.rules.base_engine import Engine
-from camp.engine.rules.base_models import Purchase
 from camp.engine.rules.tempest.controllers.character_controller import TempestCharacter
 from camp.engine.rules.tempest.engine import TempestEngine
 
@@ -81,31 +80,47 @@ def test_perk_discount(character: TempestCharacter):
     assert character.cp.spent_cp == base_cp + 2
 
 
-# Patron-related.
+# Patron-related. This also covers some general functionality for Choices.
 
 
-def test_patron_grants_slot(character: TempestCharacter):
-    assert character.purchase("patron")
-    assert character.has_slot("patron-discount")
-    assert character.legal_features_for_slot("patron-discount")
-    assert character.list_features(available=True, slot="patron-discount")
+def test_patron_has_discount_choices(character: TempestCharacter):
+    """Perks with choices provide views for those choices once purchased.
 
-
-def test_patron_slot_only_for_perks(character: TempestCharacter):
+    Before a feature is taken, it does not advertise its choices.
+    """
+    assert not character.feature_controller("patron").choices
     character.purchase("patron")
-    assert not character.can_purchase(
-        Purchase(id="basic-skill", slot="patron-discount")
-    )
-    assert character.can_purchase(Purchase(id="basic-perk", slot="patron-discount"))
+    assert "discount" in character.feature_controller("patron").choices
 
 
-def test_patron_discount_in_list(character: TempestCharacter):
-    """When listing features for the discount slot, the discount is applied appropriately."""
+def test_patron_choice_contains_perks(character: TempestCharacter):
     character.purchase("patron")
-    for feature in character.list_features(available=True, slot="patron-discount"):
-        assert feature.type == "perk"
-        normal = character.show_feature(feature.id)
-        if normal.cost[0] > 1:
-            assert feature.cost[0] == normal.cost[0] - 1
-        else:
-            assert feature.cost[0] == 1
+    discount = character.feature_controller("patron").choices["discount"]
+    choices = discount.valid_features()
+    assert "basic-perk" in choices
+    assert "basic-skill" not in choices
+
+
+def test_patron_choice_does_not_contain_tagged(character: TempestCharacter):
+    """Perks tagged `no-patron` aren't available for Patron discount."""
+    character.purchase("patron")
+    discount = character.feature_controller("patron").choices["discount"]
+    choices = discount.valid_features()
+    # The following perks are tagged "no-patron" in the test ruleset.
+    assert "patron" not in choices
+    assert "perk-discount-perk" not in choices
+
+
+def test_patron_discount_applied(character: TempestCharacter):
+    character.awarded_cp = 9
+    character.purchase("patron")
+    assert character.cp.spent_cp == 4
+    character.purchase("varying-cost-perk")
+    assert character.cp.spent_cp == 4 + 1
+    assert character.purchase("varying-cost-perk:4")
+    assert character.cp.spent_cp == 4 + sum([1, 1, 2, 2, 3])
+    discount = character.feature_controller("patron").choices["discount"]
+    assert discount.choose("varying-cost-perk")
+    # Discount is applied to each rank individually, and the cost of any
+    # given rank can't go below 1.
+    assert character.cp.spent_cp == 4 + sum([1, 1, 1, 1, 2])

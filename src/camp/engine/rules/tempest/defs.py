@@ -7,6 +7,7 @@ from typing import Literal
 from typing import Type
 from typing import TypeAlias
 
+import pydantic
 from pydantic import Field
 from pydantic import NonNegativeInt
 
@@ -18,13 +19,44 @@ from . import models
 
 Attribute: TypeAlias = base_models.Attribute
 Grantable: TypeAlias = str | list[str] | dict[str, int]
-Discounts: TypeAlias = dict[str, int]
+
+
+class Discount(base_models.BaseModel):
+    """Describes a cost discount, generally for CP.
+
+    Attributes:
+        modifier: The amount to change the cost. For example, `1` means "the feature
+            costs 1 CP less per rank".
+        minimum: The minimum cost (per rank). If it's a discount, usually 1 or 0.
+        ranks: The number of ranks that this can apply to.
+    """
+
+    discount: pydantic.PositiveInt
+    minimum: int = 1
+    ranks: int | None = None
+
+    @classmethod
+    def cast(cls, discount: Discount | int) -> Discount:
+        if isinstance(discount, int):
+            return cls(discount=discount)
+        return discount
+
+
+Discounts: TypeAlias = dict[str, Discount | int]
+
+
+class ChoiceDef(base_models.BaseModel):
+    name: str
+    description: str | None = None
+    limit: int | Literal["unlimited"] = 1
+    discount: Discount | int | None = None
+    matcher: base_models.FeatureMatcher | None = None
 
 
 class BaseFeatureDef(base_models.BaseFeatureDef):
     grants: Grantable | None = None
-    discounts: dict[str, int] | None = None
-    slots: list[base_models.SlotDef] | None = None
+    discounts: dict[str, Discount | int] | None = None
+    choices: dict[str, ChoiceDef] | None = None
 
     def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
         super().post_validate(ruleset)
@@ -32,10 +64,10 @@ class BaseFeatureDef(base_models.BaseFeatureDef):
             ruleset.validate_identifiers(_grantable_identifiers(self.grants))
         if self.discounts:
             ruleset.validate_identifiers(self.discounts.keys())
-        if self.slots:
-            for slot in self.slots:
-                if slot.matcher and slot.matcher.id:
-                    ruleset.validate_identifiers(slot.matcher.id)
+        if self.choices:
+            for choice_def in self.choices.values():
+                if choice_def.matcher and choice_def.matcher.id:
+                    ruleset.validate_identifiers(choice_def.matcher.id)
 
 
 class SubFeatureDef(BaseFeatureDef):
@@ -86,19 +118,11 @@ class CostByRank(base_models.BaseModel):
         """The cost of a particular rank."""
         return table_lookup(self.ranks, rank)
 
-    def total_cost(self, ranks: int, discount: int = 0) -> int:
-        """The combined cost of a given number of ranks.
-
-        If `discount` is specified, it's interpreted as a per-rank discount.
-        No rank will cost less than 1.
-        """
-        total: int = 0
-        for rank in range(1, ranks + 1):
-            total += max(table_lookup(self.ranks, rank) - discount, 1)
-        return total
+    def rank_costs(self, ranks: int) -> list[int]:
+        return [self.single_rank_cost(r) for r in range(1, ranks + 1)]
 
 
-CostDef: TypeAlias = int | CostByRank
+CostDef: TypeAlias = int | CostByRank | None
 
 
 class SkillDef(BaseFeatureDef):

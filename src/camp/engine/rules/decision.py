@@ -21,6 +21,7 @@ class Decision(BaseModel):
     needs_option: bool = False
     reason: str | None = None
     amount: int | None = None
+    need_currency: dict[str, int] | None = None
 
     UNSUPPORTED: ClassVar[Decision]
     SUCCESS: ClassVar[Decision]
