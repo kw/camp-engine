@@ -49,6 +49,7 @@ def test_advanced_perk(character: TempestCharacter):
 
 def test_grants_bonus_lp(character: TempestCharacter):
     """Some perks grant bonus life points."""
+    assert character.xp_level == 2
     starting_lp = character.lp.value
     assert character.purchase("grants-bonus-lp")
     assert character.lp.value == starting_lp + 3
