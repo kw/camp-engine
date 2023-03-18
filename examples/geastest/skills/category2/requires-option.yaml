@@ -1,5 +1,4 @@
 name: Requires Option
-multiple: true
 option:
   values: [One, Two, Three]
   requires:

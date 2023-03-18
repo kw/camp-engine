@@ -8,7 +8,7 @@ from camp.engine import utils
 from camp.engine.rules import base_engine
 from camp.engine.rules import base_models
 from camp.engine.rules.base_models import PropExpression
-from camp.engine.rules.base_models import Purchase
+from camp.engine.rules.base_models import RankMutation
 from camp.engine.rules.decision import Decision
 
 from .. import defs
@@ -176,9 +176,9 @@ class TempestCharacter(base_engine.CharacterController):
             if isinstance(feat, flaw_controller.FlawController)
         }
 
-    def can_purchase(self, entry: Purchase | str) -> Decision:
-        if not isinstance(entry, Purchase):
-            entry = Purchase.parse(entry)
+    def can_purchase(self, entry: RankMutation | str) -> Decision:
+        if not isinstance(entry, RankMutation):
+            entry = RankMutation.parse(entry)
         if controller := self._controller_for_feature(entry.expression):
             if entry.ranks > 0:
                 return controller.can_increase(entry.ranks)
@@ -188,9 +188,7 @@ class TempestCharacter(base_engine.CharacterController):
             success=False, reason=f"Purchase not implemented: {entry.expression}"
         )
 
-    def purchase(self, entry: Purchase | str) -> Decision:
-        if not isinstance(entry, Purchase):
-            entry = Purchase.parse(entry)
+    def purchase(self, entry: RankMutation) -> Decision:
         if controller := self._controller_for_feature(entry.expression):
             if entry.ranks > 0:
                 return controller.increase(entry.ranks)

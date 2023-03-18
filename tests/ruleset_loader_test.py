@@ -43,7 +43,7 @@ def test_load_ruleset(path):
                 path=bd.path,
                 exception_type=bd.exception_type,
                 exception_message=bd.exception_message,
-                data=utils.dump(bd.data, sort_keys=True, indent=4),
+                data=utils.dump_json(bd.data, sort_keys=True, indent=4),
             ),
             pytrace=False,
         )
@@ -69,7 +69,7 @@ def test_serialize_ruleset(path):
     feature types on its ruleset subclass.
     """
     ruleset = loader.load_ruleset(path)
-    ruleset_json = ruleset.dump()
+    ruleset_json = utils.dump_json(ruleset)
     assert ruleset_json
     reloaded_ruleset = loader.deserialize_ruleset(ruleset_json)
     assert reloaded_ruleset.features

@@ -1,5 +1,6 @@
 name: Skill With Single Option
 option:
+  multiple: false
   values: [Rock, Paper, Scissors]
 cost: 1
 ranks: 10

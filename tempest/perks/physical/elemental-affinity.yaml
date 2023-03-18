@@ -1,7 +1,7 @@
 name: Elemental Affinity
-multiple: 2
 cost: 4
 option:
+  multiple: 2
   values:
     - Flame
     - Ice

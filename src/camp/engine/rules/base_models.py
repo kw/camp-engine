@@ -11,11 +11,11 @@ from typing import Iterable
 from typing import Literal
 from typing import Type
 from typing import TypeAlias
-from uuid import uuid4
 
 import pydantic
 
 from .. import utils
+from ..utils import make_uuid
 from ..utils import maybe_iter
 from . import base_engine
 from .decision import Decision
@@ -36,9 +36,6 @@ FlagValues: TypeAlias = list[FlagValue] | FlagValue
 
 
 class BaseModel(pydantic.BaseModel):
-    def dump(self, as_json=True) -> str | dict:
-        return utils.dump(self, as_json)
-
     class Config:
         extra = pydantic.Extra.forbid
 
@@ -269,7 +266,6 @@ PropExpression.update_forward_refs()
 
 class OptionDef(BaseModel):
     """
-
     Attributes:
         short: If true, the option text will be rendered along with
             the title, such as "Lore [Undead]". Otherwise, where
@@ -288,15 +284,49 @@ class OptionDef(BaseModel):
             options. The options available to this feature are limited to
             options taken in the chosen feature.
             Should not be specified with `freeform`, `values`, `flag`, etc.
+        multiple: If non-false, multiple options can be purchased. This is either
+            unlimited (if True) or limited to a specific amount (if an integer).
     """
 
     freeform: bool = False
     values: set[str] | None = None
     requires: dict[str, Requirements] | None = None
     inherit: str | None = None
+    multiple: bool | pydantic.PositiveInt = True
 
 
 class BaseFeatureDef(BaseModel):
+    """Attributes common to all features.
+
+    Attributes:
+        id: The unique ID of the feature. The space of IDs encompasses
+            also encompasses attributes and other properties. Note that
+            while this field is required, specifying it in definition files
+            is optional. If not provided, the file's base name will be used.
+            Typically this will not be specified unless multiple features are provided
+            in a single YAML document stream.
+        name: The user-visible name of the feature.
+        type: The type of feature. Subclasses will normally override this with
+            to specify the type literally, which can aid the parser in identifying
+            what model to use. Ex:
+                type: Literal['subtypetag'] = 'subtypetag'
+        requires: Requirements that must be met for the feature to be added. Note that
+            requirements are interpreted as "always on" - should the character stop
+            meeting the requirement, the character will no longer signal as valid.
+            If your system needs "soft requirements" (that only need to be true at)
+            the time of acquisition, you'll want an extra field for it.
+        def_path: If this feature definition was loaded from a file, the loader will
+            populate this with the full path of the file.
+        tags: While most often used with Feature Matchers, tags can have other mechanical
+            meanings. Your view layer should keep in mind that not all tags are meaningful to
+            players (or should be visible to them) and may not have user-friendly names, so
+            some sort of translation table is advisable.
+        description: The text description to present to users. This may include Markdown formatting.
+        option_def: If a feature has "options", the definition should be provided here. See OptionDef
+            for more details, but tl;dr this allows a single definition that can have multiple independent
+            purchases, such as a "Lore" skill that can be purchased as "Lore [Undead]" or "Lore [Arcane]".
+    """
+
     id: str
     name: str
     type: str
@@ -306,7 +336,6 @@ class BaseFeatureDef(BaseModel):
     description: str | None = None
     ranks: int | Literal["unlimited"] = 1
     option_def: OptionDef | None = pydantic.Field(default=None, alias="option")
-    multiple: bool | int = False
 
     @classmethod
     def default_name(cls) -> str:
@@ -566,7 +595,7 @@ class CharacterMetadata(BaseModel):
             see certain secret purchase options, and so on.
     """
 
-    id: str = pydantic.Field(default=uuid4)
+    id: str = pydantic.Field(default_factory=make_uuid)
     player_id: str | None = None
     character_name: str | None = None
     player_name: str | None = None
@@ -602,15 +631,14 @@ class CharacterModel(BaseModel, ABC):
             base currency values, special flags, etc.
     """
 
-    id: str = pydantic.Field(default_factory=uuid4)
+    id: str = pydantic.Field(default_factory=make_uuid)
     ruleset_id: str
     ruleset_version: str
     metadata: CharacterMetadata = pydantic.Field(default_factory=CharacterMetadata)
     name: str | None = None
-    purchases: list[Purchase] = pydantic.Field(default_factory=list)
 
 
-class Purchase(BaseModel):
+class RankMutation(BaseModel):
     """Represents a specific purchase event for a character feature.
 
     Note that "purchase" may be a misnomer if your game offers a way to
@@ -626,8 +654,7 @@ class Purchase(BaseModel):
             times, once per type of weapon.
         option: Option value, if any
         ranks: Number of ranks to purchase. If the feature does not have ranks,
-            use the default of "1".
-        choice: If using a choice slot to purchase this feature, identify which one.
+            use the default of "1". If negative, this is a sellback or overcome.
     """
 
     id: str
@@ -643,13 +670,38 @@ class Purchase(BaseModel):
         return PropExpression(prop=self.id, option=self.option, value=self.ranks)
 
     @classmethod
-    def parse(self, expr: str) -> Purchase:
+    def parse(self, expr: str) -> RankMutation:
         prop = PropExpression.parse(expr)
-        return Purchase(
+        return RankMutation(
             id=prop.prop,
             option=prop.option,
             ranks=prop.value if prop.value is not None else 1,
         )
+
+
+class ChoiceMutation(BaseModel):
+    id: str
+    choice: str
+    value: str
+    remove: bool = False
+
+
+class NoteMutation(BaseModel):
+    id: str
+    note: str
+
+
+class PlotMutation(BaseModel):
+    id: str
+    ranks: int | None = None
+    suppress: bool | None = None
+    cost_applies: bool = False
+    player_can_remove: bool = False
+    plot_note: str | None = None
+    player_note: str | None = None
+
+
+Mutation = RankMutation | ChoiceMutation | NoteMutation | PlotMutation
 
 
 def full_id(id: str, option: str | None) -> str:

@@ -1,8 +1,9 @@
 name: Profession - Apprentice
 cost: 1
 # TODO(#16): Add tracking to record the income
-multiple: true
 option:
+  freeform: true
+  multiple: false
   values: [$Professions]
 description: >
   The character has some basic knowledge in a profession and can generally perform in that
