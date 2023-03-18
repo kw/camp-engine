@@ -4,7 +4,6 @@
 # "Profession - Apprentice [Charlatan]".
 name: Inherited Option
 cost: 1
-multiple: true
 option:
   inherit: specific-options
 requires: specific-options

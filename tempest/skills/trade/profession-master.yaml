@@ -2,8 +2,8 @@ name: Profession - Master
 cost: 1
 # TODO(#16): Add tracking to record the income
 requires: profession-journeyman
-multiple: true
 option:
+  multiple: false
   inherit: profession-journeyman
 description: >
   The character has mastered her chosen profession. She can perform the most

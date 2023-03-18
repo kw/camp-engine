@@ -228,7 +228,7 @@ class FeatureController(base_engine.FeatureController):
                 reason=f"Need {cp_delta} CP to purchase, but only have {current_cp}",
                 amount=self._max_rank_increase(current_cp.value),
             )
-        return Decision.SUCCESS
+        return Decision.OK
 
     def can_decrease(self, value: int = 1) -> Decision:
         if not self.character.can_respend:
@@ -242,7 +242,7 @@ class FeatureController(base_engine.FeatureController):
                 reason=f"Can't sell back {value} ranks when you've only purchased {purchases} ranks.",
                 amount=(value - purchases),
             )
-        return Decision.SUCCESS
+        return Decision.OK
 
     def increase(self, value: int) -> Decision:
         if not (rd := self.can_increase(value)):
@@ -256,7 +256,7 @@ class FeatureController(base_engine.FeatureController):
             return rd
         self.purchased_ranks -= value
         self.reconcile()
-        return Decision.SUCCESS
+        return Decision.OK
 
     def propagate(self, data: engine.PropagationData) -> None:
         if not data and data.source not in self._propagation_data:

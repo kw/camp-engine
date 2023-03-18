@@ -14,12 +14,17 @@ class FeatureModel(base_models.BaseModel):
         type: Set to the type of power (as per the feature definition's type). If a model
             subclass specifies a specific type literal (see FlawModel), that subclass model
             will be loaded instead.
-        ranks: Number of ranks purchased. Occasionally, a power with 0 ranks will need to be
-            recorded. Typically this happens if the character has a power that grants ranks
-            in another power, _and_ something else about it needs to be recorded (like a Notes field
-            or a choice).
+        ranks: Number of ranks purchased. Ranks will be recorded here regardless of whether this
+            is an option feature (in which case the distribution between options will appear in the
+            `options` attribute). A feature model may be recorded with 0 ranks if it has other properties
+            that may need to be recorded, typically due to granted ranks.
         notes: Notes about this feature added by the player.
         choices: If this power has choices, what has been chosen?
+        options: If this power has options, what is their rank allocation? The rank allocation will not
+            always add up to the value in the `ranks` field. For example, if a character has purchased
+            no ranks of Lore but has 3 ranks of Lore _granted_ by another feature, the player will need
+            to select which options to allocate the grants to. These selections are added to this dict
+            regardless of whether the ranks come from purchases or grants.
         plot_added: Marks this power as added by plot. In some cases, sheet mechanics may vary slightly
             depending on whether plot forcibly added it.
         plot_notes: Notes about this feature added by plot. Not shown to players.
@@ -50,6 +55,7 @@ class FeatureModel(base_models.BaseModel):
             or self.plot_added
             or self.plot_notes
             or self.plot_free
+            or self.plot_suppressed
         )
 
 

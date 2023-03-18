@@ -1,7 +1,6 @@
 name: Free Text
 option:
   freeform: True
-multiple: true
 ranks: 10
 cost: 1
 description: >

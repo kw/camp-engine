@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+import uuid
 from importlib import import_module
 from typing import Any
 from typing import Iterable
@@ -75,10 +76,17 @@ class JSONEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def dump(data: pydantic.BaseModel | dict, as_json=True, *args, **kwargs) -> str | dict:
+def dump_dict(data: pydantic.BaseModel, exclude_unset=True) -> dict:
+    return data.dict(by_alias=True, exclude_none=True, exclude_unset=exclude_unset)
+
+
+def dump_json(
+    data: pydantic.BaseModel | dict, exclude_unset=True, *args, **kwargs
+) -> str:
     if not isinstance(data, dict):
-        data = data.dict(by_alias=True, exclude_unset=True, exclude_none=True)
-    if as_json:
-        return json.dumps(data, cls=JSONEncoder, *args, **kwargs)
-    else:
-        return data
+        data = dump_dict(data, exclude_unset=exclude_unset)
+    return json.dumps(data, *args, cls=JSONEncoder, **kwargs)
+
+
+def make_uuid() -> str:
+    return str(uuid.uuid4())

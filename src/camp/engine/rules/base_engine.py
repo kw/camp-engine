@@ -7,13 +7,12 @@ from dataclasses import dataclass
 from functools import cached_property
 from functools import total_ordering
 from typing import Any
-from typing import Iterable
-from typing import Literal
 from typing import Type
 
 import pydantic
 from packaging import version
 
+from ..utils import dump_dict
 from ..utils import maybe_iter
 from . import base_models
 from .decision import Decision
@@ -23,6 +22,9 @@ class CharacterController(ABC):
     model: base_models.CharacterModel
     engine: Engine
 
+    # Copy of the model for use when the model is mutated by fails validation.
+    _dumped_model: base_models.CharacterModel
+
     @property
     def ruleset(self):
         return self.engine.ruleset
@@ -30,55 +32,74 @@ class CharacterController(ABC):
     def __init__(self, engine: Engine, model: base_models.CharacterModel):
         self.model = model
         self.engine = engine
+        self._save_dump()
 
-    def clear_caches(self):
-        """Clear any cached data that might need to be recomputed upon mutating the character model.
+    def _save_dump(self) -> None:
+        """Store the _dumped_model attribute."""
+        self._dumped_model = self.dump_model()
 
-        Subclasses should override this.
+    def _reload_dump(self) -> None:
+        """Load the model from its serialized state.
+
+        Typically used to repair the model after a mutation has failed validation.
         """
+        self.model = self._dumped_model.copy(deep=True)
+        self.clear_caches()
 
-    def list_features(
-        self,
-        available: bool | None = None,
-        taken: bool | None = None,
-        matcher: base_models.FeatureMatcher | None = None,
-    ) -> Iterable[FeatureEntry]:
-        for id, feature_def in self.ruleset.features.items():
-            if matcher and not matcher.matches(feature_def):
-                continue
+    def dump_dict(self) -> dict:
+        """Returns a copy of the serialized model dictionary."""
+        # exclude_unset is useful here because, for example, writing into a
+        # dict on a model won't mark that field as set as far as the model is
+        # concerned.
+        data = dump_dict(self.model, exclude_unset=False)
+        if not isinstance(data, dict):
+            pass
+        return data
 
-            try:
-                controller = self.feature_controller(id)
-            except ValueError:
-                # TODO: Log it or fail or something.
-                # Until all feature types are implemented this would always fail, so shore
-                # things up a bit before changing this.
-                continue
+    def dump_model(self) -> base_models.CharacterModel:
+        """Returns a copy of the current model."""
+        return self.model.copy(deep=True)
 
-            if self._list_features_matcher(controller, id, available, taken):
-                yield controller.get_feature_entry()
-            if controller.option_def:
-                for option in self.get_options(id):
-                    full_id = base_models.full_id(id, option)
-                    option_controller = self.feature_controller(full_id)
-                    if self._list_features_matcher(
-                        option_controller, full_id, available, taken
-                    ):
-                        yield option_controller.get_feature_entry()
+    @abstractmethod
+    def clear_caches(self):
+        """Clear any cached data that might need to be recomputed upon mutating the character model."""
 
-    def _list_features_matcher(
-        self,
-        controller: FeatureController,
-        id: str,
-        available: bool,
-        taken: bool,
-    ) -> bool:
-        is_available = bool(self.can_purchase(id))
-        is_taken = controller.is_taken
-        return not (
-            (taken is not None and taken != is_taken)
-            or (available is not None and available != is_available)
-        )
+    def apply(self, mutation: base_models.Mutation | str) -> Decision:
+        rd: Decision
+        if isinstance(mutation, str):
+            mutation = base_models.RankMutation.parse(mutation)
+        try:
+            match mutation:
+                case base_models.RankMutation():
+                    rd = self.purchase(mutation)
+                case _:
+                    rd = Decision(
+                        success=False, reason=f"Mutation {mutation} unsupported."
+                    )
+        except Exception as exc:
+            rd = Decision(
+                success=False,
+                reason=f"The rules engine raised a {type(exc)} exception.",
+                exception=str(exc),
+            )
+        if rd:
+            validated = self.validate()
+            if not validated:
+                rd = validated
+        if not rd:
+            self._reload_dump()
+        else:
+            self._save_dump()
+        return rd
+
+    def validate(self) -> Decision:
+        """Validate the current model state.
+
+        In some cases, applying a mutation may affect validity in ways that are difficult to
+        predict (or prevent). Validate will be called following mutations, so feature requirements
+        and other state should be checked. If the valdity check fails, the mutation will be reverted.
+        """
+        return Decision.OK
 
     def has_prop(self, expr: str | base_models.PropExpression) -> bool:
         """Check whether the character has _any_ property (feature, attribute, etc) with the given name.
@@ -91,7 +112,7 @@ class CharacterController(ABC):
 
     @abstractmethod
     def controller(self, id: str) -> PropertyController:
-        ...
+        """Returns the controller (property, attribute, feature, etc) with the given id."""
 
     def feature_controller(self, id: str) -> FeatureController:
         controller = self.controller(id)
@@ -100,12 +121,6 @@ class CharacterController(ABC):
         raise ValueError(
             f"Expected {id} to be a FeatureController but was {controller}"
         )
-
-    def get_feature_entry(self, id: str) -> FeatureEntry:
-        if controller := self.controller(id):
-            if isinstance(controller, FeatureController):
-                return controller.get_feature_entry()
-        raise ValueError(f"{id} is not a recognized feature.")
 
     def get_attribute(
         self, expr: str | base_models.PropExpression
@@ -163,11 +178,11 @@ class CharacterController(ABC):
         return {}
 
     @abstractmethod
-    def can_purchase(self, entry: base_models.Purchase | str) -> Decision:
+    def can_purchase(self, entry: base_models.RankMutation | str) -> Decision:
         ...
 
     @abstractmethod
-    def purchase(self, entry: base_models.Purchase | str) -> Decision:
+    def purchase(self, entry: base_models.RankMutation | str) -> Decision:
         ...
 
     def meets_requirements(self, requirements: base_models.Requirements) -> Decision:
@@ -201,9 +216,14 @@ class CharacterController(ABC):
             return set()
         options_excluded: set[str] = set()
         if exclude_taken and (taken_options := self.get_options(feature_id)):
-            if not feature_def.multiple:
+            if not option_def.multiple:
                 # The feature can only have a single option and it already
                 # has one, so no other options are legal.
+                return set()
+            elif not isinstance(
+                option_def.multiple, bool
+            ) and option_def.multiple <= len(taken_options):
+                # The feature can have multiple options, but already has the limit (or more).
                 return set()
             options_excluded = set(taken_options.keys())
 
@@ -368,51 +388,20 @@ class FeatureController(PropertyController):
         return {}
 
     def can_increase(self, value: int = 1) -> Decision:
-        return Decision.UNSUPPORTED
+        return Decision(success=False, reason=f"Increase unsupported for {type(self)}")
 
     def can_decrease(self, value: int = 1) -> Decision:
-        return Decision.UNSUPPORTED
+        return Decision(success=False, reason=f"Decrease unsupported for {type(self)}")
 
     def increase(self, value: int) -> Decision:
-        return Decision.UNSUPPORTED
+        return Decision(success=False, reason=f"Increase unsupported for {type(self)}")
 
     def decrease(self, value: int) -> Decision:
-        return Decision.UNSUPPORTED
+        return Decision(success=False, reason=f"Decrease unsupported for {type(self)}")
 
     @property
     def currency(self) -> str | None:
         return None
-
-    def get_feature_entry(self) -> FeatureEntry:
-        available_ranks: int = 0
-        if not self.option_def or self.option:
-            if rd := self.can_increase():
-                available_ranks = rd.amount or 0
-            return FeatureEntry(
-                id=self.full_id,
-                name=str(self),
-                ranks=self.value,
-                max_ranks=self.max_ranks,
-                available_ranks=available_ranks,
-                can_decrease=self.can_decrease(),
-            )
-        else:
-            if (rd := self.can_increase()) and rd.needs_option:
-                available_ranks = rd.amount or 0
-            return FeatureEntry(
-                id=self.id,
-                name=str(self),
-                ranks=0,
-                max_ranks=self.max_ranks,
-                available_ranks=self.max_ranks,
-                option_freeform=self.option_def.freeform,
-                option_list=list(
-                    self.character.options_values_for_feature(
-                        self.id, exclude_taken=True
-                    )
-                ),
-                can_decrease=False,
-            )
 
     def __str__(self) -> str:
         if self.expr.option:
@@ -511,18 +500,3 @@ class PropagationData:
 
     def __bool__(self) -> bool:
         return bool(self.grants)
-
-
-@dataclass
-class FeatureEntry:
-    id: str
-    name: str
-    ranks: int
-    max_ranks: Literal["unlimited"] | int = 1
-    available_ranks: int = 1
-    cost: list[int] | None = None
-    can_decrease: bool = False
-    # For features with options
-    needs_option: bool = False
-    option_list: list[str] | None = None
-    option_freeform: bool = False

@@ -129,7 +129,7 @@ class FlawController(feature_controller.FeatureController):
             return rd
         self.purchased_ranks = value
         self.reconcile()
-        return Decision.SUCCESS
+        return Decision.OK
 
     def can_decrease(self, value: int = 1) -> Decision:
         rd = super().can_decrease(value)
@@ -153,7 +153,7 @@ class FlawController(feature_controller.FeatureController):
                 success=False,
                 reason=f"Need {cp_delta} CP to overcome, but only have {current_cp}",
             )
-        return Decision.SUCCESS
+        return Decision.OK
 
     def decrease(self, value: int) -> Decision:
         if not (rd := self.can_decrease(value)):
@@ -164,4 +164,4 @@ class FlawController(feature_controller.FeatureController):
             # We don't remove the model, just mark it overcome.
             self.model.overcome = True
         self.reconcile()
-        return Decision.SUCCESS
+        return Decision.OK

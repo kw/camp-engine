@@ -27,7 +27,7 @@ def character(engine: TempestEngine) -> TempestCharacter:
 
 def test_fighter(character: TempestCharacter):
     assert character.can_purchase("fighter:2")
-    assert character.purchase("fighter:2")
+    assert character.apply("fighter:2")
     assert character.meets_requirements("fighter:2")
     assert character.meets_requirements("martial")
     assert character.meets_requirements("martial:2")
@@ -41,7 +41,7 @@ def test_fighter(character: TempestCharacter):
 def test_wizard(character: TempestCharacter):
     # Purchase some Wizard levels.
     assert character.can_purchase("wizard:2")
-    assert character.purchase("wizard:2")
+    assert character.apply("wizard:2")
 
     # Do various requirement tags register as expected?
     assert character.meets_requirements("wizard:2")
@@ -56,7 +56,7 @@ def test_wizard(character: TempestCharacter):
 
 def test_druid(character: TempestCharacter):
     assert character.can_purchase("druid:2")
-    assert character.purchase("druid:2")
+    assert character.apply("druid:2")
     assert character.meets_requirements("druid:2")
     assert not character.meets_requirements("martial")
     assert not character.meets_requirements("martial:2")
@@ -68,12 +68,12 @@ def test_druid(character: TempestCharacter):
 
 
 def test_sellback_level2(character: TempestCharacter):
-    character.purchase("wizard:2")
+    character.apply("wizard:2")
     # Can we sell class levels back (if editing is enabled)?
     # If you sell back a class level when it's your last 2 levels,
     # both will be removed, since a character can never be "level 1".
     assert character.can_purchase("wizard:-1")
-    assert character.purchase("wizard:-1")
+    assert character.apply("wizard:-1")
     assert not character.meets_requirements("wizard:2")
     assert not character.meets_requirements("wizard")
     assert not character.meets_requirements("level:2")
@@ -86,9 +86,9 @@ def test_sellback_level2(character: TempestCharacter):
 def test_sellback_level5(character: TempestCharacter):
     # A level 5 wizard sells back 3 levels.
     character.xp_level = 5
-    assert character.purchase("wizard:5")
+    assert character.apply("wizard:5")
     assert character.can_purchase("wizard:-3")
-    assert character.purchase("wizard:-3")
+    assert character.apply("wizard:-3")
 
     # Should now be a level 2 wizard, with the appropriate tags
     assert character.meets_requirements("wizard:2")
@@ -103,8 +103,8 @@ def test_multiple_divine_classes(character: TempestCharacter):
     Specifically, check that tags like 'caster' and 'divine' are additive.
     """
     character.xp_level = 10
-    character.purchase("druid:5")
-    character.purchase("cleric:5")
+    character.apply("druid:5")
+    character.apply("cleric:5")
 
     assert character.meets_requirements("caster:10")
     assert character.meets_requirements("divine:10")
@@ -112,9 +112,9 @@ def test_multiple_divine_classes(character: TempestCharacter):
 
 def test_multiclass(character: TempestCharacter):
     character.xp_level = 15
-    assert character.purchase("fighter:3")
-    assert character.purchase("wizard:5")
-    assert character.purchase("druid:7")
+    assert character.apply("fighter:3")
+    assert character.apply("wizard:5")
+    assert character.apply("druid:7")
     assert character.meets_requirements("martial:3")
     assert character.meets_requirements("martial$3")
     assert not character.meets_requirements("martial$4")
@@ -154,8 +154,8 @@ def test_multiclass_sellback(character: TempestCharacter):
     classes are removed, the starting class can also be removed.
     """
     character.xp_level = 10
-    assert character.purchase("wizard:5")
-    assert character.purchase("fighter:5")
+    assert character.apply("wizard:5")
+    assert character.apply("fighter:5")
     assert character.level == 10
     assert character.starting_class.id == "wizard"
 
@@ -170,12 +170,12 @@ def test_multiclass_sellback(character: TempestCharacter):
     assert not character.can_purchase("fighter:-6")
 
     # Actually try it.
-    assert character.purchase("wizard:-3")
+    assert character.apply("wizard:-3")
     assert character.level == 7
-    assert character.purchase("fighter:-5")
+    assert character.apply("fighter:-5")
     assert character.level == 2
     # Once we're down to a single class, we can buy down the rest.
-    assert character.purchase("wizard:-2")
+    assert character.apply("wizard:-2")
     assert character.level == 0
     assert character.starting_class is None
     assert character.primary_class is None
@@ -184,7 +184,7 @@ def test_multiclass_sellback(character: TempestCharacter):
 @pytest.mark.xfail(reason="Not yet implemented")
 def test_spell_slots(character: TempestCharacter):
     character.xp_level = 7
-    character.purchase("wizard:7")
+    character.apply("wizard:7")
     assert character.meets_requirements("spells:7")
     assert character.meets_requirements("spells@1:6")
     assert character.meets_requirements("spells@2:1")

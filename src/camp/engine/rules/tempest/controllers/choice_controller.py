@@ -65,7 +65,9 @@ class ChoiceController:
 
         feature_def = self._feature.character.feature_def(feature)
         if not feature_def:
-            return Decision.UNKNOWN_FAILURE
+            return Decision(
+                success=False, reason=f"Feature definition not found for {feature}."
+            )
 
         matcher = self.choice_def.matcher
         if not matcher or not matcher.matches(feature_def):
@@ -94,7 +96,9 @@ class ChoiceController:
             choices.append(feature)
             self._feature.model.choices[self._choice] = choices
             self._feature.reconcile()
-            return Decision.SUCCESS
+            return Decision(
+                success=True, mutation_applied=True, reason="Choice applied."
+            )
 
         # Otherwise, report the increase decision back. It might have useful info.
         return rd

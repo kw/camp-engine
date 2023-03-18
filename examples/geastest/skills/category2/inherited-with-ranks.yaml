@@ -2,7 +2,6 @@
 #
 name: Inherited With Ranks
 cost: 1
-multiple: true
 option:
   inherit: specific-options:4
 requires: specific-options$4
