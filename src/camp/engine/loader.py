@@ -5,6 +5,8 @@ import types
 import typing
 import zipfile
 from copy import deepcopy
+from importlib import resources
+from importlib.resources.abc import Traversable
 
 import pydantic
 import yaml
@@ -20,7 +22,7 @@ from .rules import base_models
 
 Models: typing.TypeAlias = typing.Iterable[pydantic.BaseModel]
 FeatureTypeMap: typing.TypeAlias = dict[str, typing.Type[base_models.BaseFeatureDef]]
-PathLike: typing.TypeAlias = pathlib.Path | zipfile.Path
+PathLike: typing.TypeAlias = pathlib.Path | zipfile.Path | Traversable
 
 
 def load_ruleset(
@@ -35,13 +37,18 @@ def load_ruleset(
         path: Path to a directory that contains a ruleset file.
             Alternatively, a path to a zipfile that contains a ruleset
             file and additional ruleset data.
+            If the given path is a string beginning with "$" and containing no slashes,
+            it is interpreted as a resource path.
         with_bad_defs: If true (the default), will not raise an exception
             if a feature definition file has a bad definition. Instead,
             the returned ruleset will have its `bad_defs` property populated
             with BadDefinition models.
     """
     if isinstance(path, str):
-        if path.endswith(".zip"):
+        if path.startswith("$") and "/" not in path:
+            # Assume this is a python package resource reference.
+            path = resources.files(path[1:])
+        elif path.endswith(".zip"):
             path = zipfile.Path(zipfile.ZipFile(path))
         else:
             path = pathlib.Path(path)

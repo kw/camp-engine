@@ -19,10 +19,6 @@ dependencies = [
 [project.urls]
 "Homepage" = "https://github.com/kw/camp-engine"
 
-[build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
-
 [tool.isort]
 profile = "black"
 force_single_line = true
@@ -31,3 +27,24 @@ force_single_line = true
 python_files = ["tests.py", "test_*.py", "*_tests.py", "*_test.py"]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.poetry]
+name = "camp-engine"
+version = "0.1.0"
+description = ""
+authors = ["Ken Moriarty <kwatford@gmail.com>"]
+readme = "README.md"
+packages = [{include = "camp", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pydantic = ">=1.10,<2.0"
+
+[tool.poetry.group.dev.dependencies]
+ipython = "^8.11.0"
+pytest = "7.1"
+pre-commit = "^3.2.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
