@@ -6,7 +6,11 @@ import typing
 import zipfile
 from copy import deepcopy
 from importlib import resources
-from importlib.resources.abc import Traversable
+
+try:
+    from importlib.resources.abc import Traversable
+except ImportError:
+    from importlib.abc import Traversable
 
 import pydantic
 import yaml
