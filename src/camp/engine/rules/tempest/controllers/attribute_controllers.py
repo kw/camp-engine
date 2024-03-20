@@ -1,23 +1,15 @@
 from __future__ import annotations
 
-from camp.engine.rules import base_engine
+from typing import Iterable
 
-from . import character_controller
+from camp.engine.rules import base_engine
+from camp.engine.rules.base_engine import CharacterController
 
 
 class AttributeController(base_engine.AttributeController):
-    character: character_controller.TempestCharacter
-    _granted_ranks: int = 0
-
-    def __init__(self, prop_id: str, character: character_controller.TempestCharacter):
-        super().__init__(prop_id, character)
-
-    def propagate(self, data: base_engine.PropagationData):
-        self._granted_ranks += data.grants
-
     @property
     def value(self):
-        return self._granted_ranks
+        return sum(p.grants for p in self._propagation_data.values())
 
 
 class LifePointController(AttributeController):
@@ -36,15 +28,15 @@ class SumAttribute(AttributeController):
 
     """
 
-    character: character_controller.TempestCharacter
+    character: base_engine.CharacterController
     _condition: str | None
     _feature_type: str
 
     def __init__(
         self,
         prop_id: str,
-        character: character_controller.TempestCharacter,
-        feature_type: str,
+        character: base_engine.CharacterController,
+        feature_type: str | None = None,
         condition: str | None = None,
     ):
         super().__init__(prop_id, character)
@@ -54,30 +46,44 @@ class SumAttribute(AttributeController):
     @property
     def value(self) -> int:
         total: int = super().value
-        for fc in self.character.controllers_for_type(self._feature_type).values():
-            if self._condition is None or getattr(fc, self._condition, True):
-                total += fc.value
+        for fc in self.matching_controllers():
+            total += fc.value
         return total
 
     @property
     def max_value(self) -> int:
         current: int = 0
-        for fc in self.character.controllers_for_type(self._feature_type).values():
-            if (self._condition is None or getattr(fc, self._condition, True)) and (
-                v := fc.value
-            ) > current:
+        for fc in self.matching_controllers():
+            if (v := fc.value) > current:
                 current = v
         return current
 
+    def matching_controllers(self) -> Iterable[base_engine.BaseFeatureController]:
+        for fc in self.character.features.copy().values():
+            if self._feature_type and fc.feature_type != self._feature_type:
+                continue
+            if self._condition is None or getattr(fc, self._condition, True):
+                yield fc
+
 
 class CharacterPointController(AttributeController):
-    character: character_controller.TempestCharacter
+    character: base_engine.CharacterController
 
     @property
     def value(self) -> int:
-        base = self.character.awarded_cp + self.character.base_cp + super().value
+        return self.total_cp - self.spent_cp
 
-        return base + self.flaw_award_cp - self.spent_cp
+    @property
+    def total_cp(self) -> int:
+        return (
+            self.character.freeplay_cp
+            + self.character.event_cp
+            + self.character.bonus_cp
+            + self.character.backstory_cp
+            + self.character.base_cp
+            + self.bonus
+            + self.flaw_award_cp
+        )
 
     @property
     def spent_cp(self) -> int:
@@ -86,10 +92,14 @@ class CharacterPointController(AttributeController):
     @property
     def purchase_spent_cp(self) -> int:
         spent: int = 0
-        for feat in list(self.character.features.values()):
+        for feat in self.character.features.copy().values():
             if feat.currency == "cp":
                 spent += feat.cost
         return spent
+
+    @property
+    def flaw_cp_cap(self) -> int:
+        return self.character.ruleset.flaw_cp_cap
 
     @property
     def flaw_award_cp(self) -> int:
@@ -104,7 +114,11 @@ class CharacterPointController(AttributeController):
                 plot_total += flaw.award_cp
             else:
                 player_total += flaw.award_cp
-        return min(player_total, self.character.ruleset.flaw_cp_cap) + plot_total
+        return min(player_total, self.flaw_cp_cap) + plot_total
+
+    @property
+    def flaw_cp_available(self) -> int:
+        return self.flaw_cp_cap - self.flaw_award_cp
 
     @property
     def flaw_overcome_cp(self) -> int:
@@ -112,3 +126,65 @@ class CharacterPointController(AttributeController):
         for flaw in list(self.character.flaws.values()):
             total += flaw.overcome_cp
         return total
+
+
+class BreedPointController(AttributeController):
+    character: base_engine.CharacterController
+    primary: bool
+
+    def __init__(self, primary: bool, character: CharacterController):
+        super().__init__("bp-primary" if primary else "bp-secondary", character)
+        self.primary = primary
+
+    @property
+    def breed(self) -> base_engine.BaseFeatureController | None:
+        return (
+            self.character.primary_breed
+            if self.primary
+            else self.character.secondary_breed
+        )
+
+    @property
+    def bp_cap(self) -> int:
+        return self.character.get(f"{self.id}.cap")
+
+    @property
+    def cap(self) -> int:
+        return (
+            self.character.ruleset.breed_primary_bp_cap
+            if self.primary
+            else self.character.ruleset.breed_secondary_bp_cap
+        )
+
+    @property
+    def awarded_bp(self) -> int:
+        return min(self.bp_cap, self.challenge_award_bp) + self.bonus
+
+    @property
+    def challenge_award_bp(self) -> int:
+        total: int = 0
+        if breed := self.breed:
+            for challenge in breed.taken_challenges:
+                total += challenge.award_bp
+        return total
+
+    @property
+    def advantage_cost_bp(self) -> int:
+        total: int = 0
+        if breed := self.breed:
+            for advantage in breed.taken_advantages:
+                total += advantage.cost
+        return total
+
+    @property
+    def costuming(self) -> int:
+        total: int = 0
+        if breed := self.breed:
+            for challenge in breed.taken_challenges:
+                if challenge.definition.costuming:
+                    total += challenge.award_bp
+        return total
+
+    @property
+    def value(self) -> int:
+        return self.awarded_bp - self.advantage_cost_bp

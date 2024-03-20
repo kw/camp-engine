@@ -12,14 +12,10 @@ try:
 except ImportError:
     from importlib.abc import Traversable
 
+import tomllib
+
 import pydantic
 import yaml
-
-try:
-    # TOML parser is part of the standard library starting at 3.11
-    import tomllib  # type: ignore[reportMissingImports]
-except ImportError:
-    import tomli as tomllib  # type: ignore[no-redef]
 
 from . import utils
 from .rules import base_models
@@ -88,7 +84,7 @@ def load_ruleset(
                 bad_defs.append(
                     base_models.BadDefinition(
                         path=model.def_path,
-                        data=model.dump(as_json=False),
+                        data=model.model_dump(),
                         raw_data=None,
                         exception_type="NonUniqueId",
                         exception_message=f"Non-unique ID {model.id}. Existing: {duplicate}",
@@ -96,7 +92,7 @@ def load_ruleset(
                 )
             else:
                 feature_dict[model.id] = model
-    ruleset = ruleset.copy(
+    ruleset = ruleset.model_copy(
         update={
             "features": ruleset.features | feature_dict,
             "bad_defs": bad_defs,
@@ -107,31 +103,35 @@ def load_ruleset(
         try:
             feature.post_validate(ruleset)
         except Exception as exc:
-            ruleset.bad_defs.append(
-                base_models.BadDefinition(
-                    path=feature.def_path,
-                    data=model.dump(as_json=False),
-                    raw_data=None,
-                    exception_type=type(exc).__name__,
-                    exception_message=str(exc),
+            if with_bad_defs:
+                ruleset.bad_defs.append(
+                    base_models.BadDefinition(
+                        path=feature.def_path,
+                        raw_data=None,
+                        exception_type=type(exc).__name__,
+                        exception_message=str(exc),
+                    )
                 )
-            )
-            broken_features.add(id)
+                broken_features.add(id)
+            else:
+                raise
     for id in broken_features:
         del ruleset.features[id]
     try:
         # Ensure the ruleset's engine can be loaded.
         ruleset.engine
     except Exception as exc:
-        ruleset.bad_defs.append(
-            base_models.BadDefinition(
-                path=feature.def_path,
-                data=model.dump(as_json=False),
-                raw_data=ruleset.engine_class,
-                exception_type=type(exc).__name__,
-                exception_message=str(exc),
+        if with_bad_defs:
+            ruleset.bad_defs.append(
+                base_models.BadDefinition(
+                    path=feature.def_path,
+                    raw_data=ruleset.engine_class,
+                    exception_type=type(exc).__name__,
+                    exception_message=str(exc),
+                )
             )
-        )
+        else:
+            raise
     return ruleset
 
 
@@ -163,7 +163,7 @@ def _parse_ruleset_dict(ruleset_dict: dict):
     ruleset_model = utils.import_name(ruleset_def)
     if not issubclass(ruleset_model, base_models.BaseRuleset):
         raise ValueError(f"{ruleset_def} does not implement BaseRuleset")
-    return pydantic.parse_obj_as(ruleset_model, ruleset_dict)
+    return pydantic.TypeAdapter(ruleset_model).validate_python(ruleset_dict)
 
 
 def _parse_directory(
@@ -270,11 +270,24 @@ def _parse(
             # Add them to our existing defaults and skip the entry.
             # Note that these only apply to this file.
             del raw_data["id"]
+            # Combine prefixes up the tree.
+            new_prefix = None
+            if (
+                (raw_prefix := raw_data.get("id_prefix"))
+                and (default_prefix := defaults.get("id_prefix"))
+                and (raw_prefix != default_prefix)
+            ):
+                new_prefix = raw_prefix + default_prefix
             defaults = _dict_merge(defaults, raw_data)
+            if new_prefix:
+                defaults["id_prefix"] = new_prefix
             continue
         count += 1
         try:
             data = _dict_merge(defaults, raw_data)
+            if "id_prefix" in data:
+                data["id"] = data["id_prefix"] + data["id"]
+                del data["id_prefix"]
             data["def_path"] = str(path)
             type_key = data.get("type")
             if not type_key:
@@ -286,7 +299,7 @@ def _parse(
                 raise TypeError(
                     f'No feature model corresponding to type key "{type_key}"'
                 )
-            obj = pydantic.parse_obj_as(model, data)
+            obj = model(**data)
             yield obj
         except (TypeError, pydantic.ValidationError) as exc:
             if with_bad_defs:
@@ -352,11 +365,11 @@ if __name__ == "__main__":
             print(f"Ruleset {ruleset.name} parsed successfully.")
             print("Features:")
             current_type = None
-            for id, feature in sorted(
+            for id, fc in sorted(
                 ruleset.features.items(), key=lambda item: item[1].type
             ):
-                if current_type != feature.type:
-                    current_type = feature.type
+                if current_type != fc.type:
+                    current_type = fc.type
                     friendly_type = ruleset.type_names.get(current_type, current_type)
                     print(f"Type: {friendly_type}")
-                print(f"- {id}: {feature.name}")
+                print(f"- {id}: {fc.name}")

@@ -49,8 +49,10 @@ def maybe_iter(value: str | _T | list[str | _T] | None) -> Iterable[str | _T]:
         yield value
 
 
-def table_lookup(table: dict[int, _T], key: int) -> _T:
+def table_lookup(table: dict[int, _T] | list[_T], key: int) -> _T:
     best: _T | None = None
+    if isinstance(table, list):
+        table = {k: v for k, v in enumerate(table)}
     for k in sorted(table.keys()):
         if best is None or k <= key:
             best = table[k]
@@ -76,15 +78,29 @@ class JSONEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def dump_dict(data: pydantic.BaseModel, exclude_unset=True) -> dict:
-    return data.dict(by_alias=True, exclude_none=True, exclude_unset=exclude_unset)
+def dump_dict(
+    data: pydantic.BaseModel, exclude_unset=True, exclude_defaults=False
+) -> dict:
+    return data.model_dump(
+        by_alias=True,
+        exclude_none=True,
+        exclude_unset=exclude_unset,
+        exclude_defaults=exclude_defaults,
+        mode="json",
+    )
 
 
 def dump_json(
-    data: pydantic.BaseModel | dict, exclude_unset=True, *args, **kwargs
+    data: pydantic.BaseModel | dict,
+    exclude_unset=True,
+    exclude_defaults=False,
+    *args,
+    **kwargs,
 ) -> str:
     if not isinstance(data, dict):
-        data = dump_dict(data, exclude_unset=exclude_unset)
+        data = dump_dict(
+            data, exclude_unset=exclude_unset, exclude_defaults=exclude_defaults
+        )
     return json.dumps(data, *args, cls=JSONEncoder, **kwargs)
 
 
