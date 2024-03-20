@@ -364,7 +364,6 @@ class GrantChoice(BaseFeatureChoice):
 
 
 class AncestorManifestedChoice(GrantChoice):
-
     def choose(self, choice: str) -> Decision:
         if choice not in self._matching_features():
             return Decision(

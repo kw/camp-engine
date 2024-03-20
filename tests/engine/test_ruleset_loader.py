@@ -9,11 +9,12 @@ import pytest
 from camp.engine import loader
 from camp.engine import utils
 
-RULESET_PATH = pathlib.Path(__file__).parent.parent.parent / "rulesets"
+RULESET_PATH = pathlib.Path(__file__).parent.parent / "rulesets"
 TEMPEST_TEST = RULESET_PATH / "tempest_test"
 
 PATH_PARAMS = [
-    pytest.param(TEMPEST_TEST, id="tempest-test"),
+    pytest.param(TEMPEST_TEST, id="dir-test"),
+    pytest.param("$rulesets.tempest_test", id="resource-test"),
 ]
 
 FAIL_TEMPLATE = """
@@ -60,8 +61,11 @@ def test_load_ruleset(path):
 @pytest.mark.parametrize("format", ["zip"])
 def test_load_archive_ruleset(path, format, tmp_path_factory):
     """Zipfile loader test."""
+    archive_path = str(path)
+    if archive_path.startswith("$"):
+        archive_path = resources.files(archive_path[1:])
     temp_base = tmp_path_factory.mktemp("camp-engine-test") / "ruleset"
-    archive = shutil.make_archive(temp_base, format, root_dir=path)
+    archive = shutil.make_archive(temp_base, format, root_dir=archive_path)
     ruleset = loader.load_ruleset(archive)
     assert not ruleset.bad_defs
     assert ruleset.features
