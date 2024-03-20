@@ -6,8 +6,6 @@ from camp.engine import utils
 from camp.engine.rules.decision import Decision
 
 from .. import defs
-from .. import models
-from . import character_controller
 from . import feature_controller
 
 _NO_RESPEND = Decision(success=False, reason="Respend not currently available.")
@@ -19,15 +17,6 @@ _ALREADY_OVERCOME = Decision(success=False)
 
 class FlawController(feature_controller.FeatureController):
     definition: defs.FlawDef
-    model_type = models.FlawModel
-    model: models.FlawModel
-
-    def __init__(self, full_id: str, character: character_controller.TempestCharacter):
-        super().__init__(full_id, character)
-        if not isinstance(self.definition, defs.FlawDef):
-            raise ValueError(
-                f"Expected {full_id} to be a flaw, but was {type(self.definition)}"
-            )
 
     @property
     def value(self) -> int:
@@ -47,7 +36,9 @@ class FlawController(feature_controller.FeatureController):
             else:
                 flags_to_eval[option[1:]] = value
         for flag, value in flags_to_eval.items():
-            for f in utils.maybe_iter(self.character.flags.get(flag, [])):
+            for f in utils.maybe_iter(self.character.flags.get(flag)):
+                if f is None:
+                    continue
                 if not isinstance(f, str):
                     f = str(f)
                 # Negative flag. Remove from awards *if* it has the matching value.
@@ -106,23 +97,35 @@ class FlawController(feature_controller.FeatureController):
     @property
     def _award_value(self) -> int:
         """Amount of CP that would be awarded, assuming this flaw was taken at character creation."""
-        award: int = 0
-        if isinstance(self.definition.award, int):
-            award = self.definition.award
-        else:
-            award = self.award_options.get(self.option, 0)
+        award = self._option_award(self.option)
         # The award value can be modified if other features are present.
         if self.definition.award_mods:
             for flaw, mod in self.definition.award_mods.items():
-                if self.character.get_prop(flaw) > 0:
+                if self.character.get(flaw) > 0:
                     award += mod
         return max(award * self.paid_ranks, 0)
+
+    def _option_award(self, option) -> int:
+        if isinstance(self.definition.award, int):
+            return self.definition.award
+        return self.award_options.get(option, 0)
+
+    def describe_option(self, option: str) -> str:
+        descr = super().describe_option(option)
+        # If this flaw has an award dictionary, add the cost to the description.
+        if isinstance(self.definition.award, dict):
+            descr = f"{descr} ({self._option_award(option)} CP)"
+        return descr
 
     def can_increase(self, value: int = 1) -> Decision:
         # Players can't take flaws after character creation, except by asking plot.
         if not self.character.can_respend:
             return _NO_RESPEND
         return super().can_increase(value)
+
+    def can_afford(self, value: int = 1) -> Decision:
+        # Any number of flaws can be taken, though the number of CP awarded is limited.
+        return True
 
     def increase(self, value: int) -> Decision:
         if not (rd := self.can_increase(value)):
@@ -165,3 +168,52 @@ class FlawController(feature_controller.FeatureController):
             self.model.overcome = True
         self.reconcile()
         return Decision.OK
+
+    def cost_string(self, **kw) -> str | None:
+        if (cost := self.award_cp) or self.paid_ranks:
+            return self.purchase_cost_string(cost=cost)
+        return None
+
+    def purchase_cost_string(self, ranks: int = 1, cost: int | None = None) -> str:
+        if cost is not None:
+            return f"+{cost} CP"
+        match self.definition.award:
+            case int():
+                return f"+{self.definition.award} CP"
+            case dict():
+                # The award varies based on a table of options. Determine the spread and use that.
+                values = set(self.award_options.values())
+                min_v = min(values)
+                max_v = max(values)
+                if min_v == max_v:
+                    return f"+{min_v} CP"
+                return f"+{min_v}-{max_v} CP"
+            case _:
+                return "+? CP"
+
+    @property
+    def explain(self) -> list[str]:
+        reasons = super().explain
+
+        if self.award_cp:
+            reasons.append(f"You receive {self.award_cp} CP from this flaw.")
+
+        if self.overcome:
+            reasons.append(f"This flaw has been overcome ({self.overcome_cp} CP).")
+
+        if self.overcome_disabled:
+            reasons.append("Plot has disabled the ability to overcome this flaw.")
+
+        return reasons
+
+    @property
+    def explain_type_group(self) -> str | None:
+        if self.character.cp.flaw_cp_available <= 0:
+            return (
+                f"You have reached the maximum Flaw CP award ({self.character.cp.flaw_cp_cap}). "
+                + "You may still take new flaws, but you will not receive any more CP for them."
+            )
+        return (
+            f"You may take an additional {self.character.cp.flaw_cp_available} CP worth of flaws. "
+            + "Any flaws taken beyond this point will not award CP."
+        )

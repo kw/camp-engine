@@ -7,9 +7,8 @@ from typing import Literal
 from typing import Type
 from typing import TypeAlias
 
-import pydantic
 from pydantic import Field
-from pydantic import NonNegativeInt
+from pydantic import PositiveInt
 
 from camp.engine.rules import base_models
 from camp.engine.utils import maybe_iter
@@ -18,85 +17,46 @@ from camp.engine.utils import table_lookup
 from . import models
 
 Attribute: TypeAlias = base_models.Attribute
-Grantable: TypeAlias = str | list[str] | dict[str, int]
 
 
-class Discount(base_models.BaseModel):
-    """Describes a cost discount, generally for CP.
+class GrantDef(base_models.BaseModel):
+    """Describes how a grant operates in more detail."""
 
-    Attributes:
-        modifier: The amount to change the cost. For example, `1` means "the feature
-            costs 1 CP less per rank".
-        minimum: The minimum cost (per rank). If it's a discount, usually 1 or 0.
-        ranks: The number of ranks that this can apply to.
-    """
-
-    discount: pydantic.PositiveInt
-    minimum: int = 1
-    ranks: int | None = None
-
-    @classmethod
-    def cast(cls, discount: Discount | int) -> Discount:
-        if isinstance(discount, int):
-            return cls(discount=discount)
-        return discount
+    id: str
+    value: int | list[str] | dict[int, int] = 1
+    per_rank: bool = False
 
 
-Discounts: TypeAlias = dict[str, Discount | int]
+Grantable: TypeAlias = str | list[str] | dict[str, int] | GrantDef
+Discounts: TypeAlias = dict[str, base_models.Discount | int]
 
 
-class ChoiceDef(base_models.BaseModel):
-    name: str
-    description: str | None = None
-    limit: int | Literal["unlimited"] = 1
-    discount: Discount | int | None = None
-    matcher: base_models.FeatureMatcher | None = None
+class ScalingTable(base_models.Table, base_models.BaseModel):
+    base: int
+    factor: float
+    rounding: Literal["up", "down", "nearest"] = "nearest"
+    low: int = 1
+    high: int = 25
+
+    def bounds(self) -> tuple[int, int]:
+        return self.low, self.high
+
+    def evaluate(self, key: int) -> int:
+        x = self.base + (key / self.factor)
+        if key < self.low:
+            key = self.low
+        elif key > self.high:
+            key = self.high
+        match self.rounding:
+            case "up":
+                return math.ceil(x)
+            case "down":
+                return math.floor(x)
+            case _:
+                return round(x)
 
 
-class BaseFeatureDef(base_models.BaseFeatureDef):
-    grants: Grantable | None = None
-    discounts: dict[str, Discount | int] | None = None
-    choices: dict[str, ChoiceDef] | None = None
-
-    def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
-        super().post_validate(ruleset)
-        if self.grants:
-            ruleset.validate_identifiers(_grantable_identifiers(self.grants))
-        if self.discounts:
-            ruleset.validate_identifiers(self.discounts.keys())
-        if self.choices:
-            for choice_def in self.choices.values():
-                if choice_def.matcher and choice_def.matcher.id:
-                    ruleset.validate_identifiers(choice_def.matcher.id)
-
-
-class SubFeatureDef(BaseFeatureDef):
-    type: Literal["subfeature"] = "subfeature"
-    parent: str | None = None
-
-
-class ClassDef(BaseFeatureDef):
-    type: Literal["class"] = "class"
-    sphere: Literal["arcane", "divine", "martial"] = "martial"
-    starting_features: Grantable | None = None
-    multiclass_features: Grantable | None = None
-    bonus_features: dict[int, Grantable] | None = None
-    level_table_columns: dict[str, dict]
-    levels: dict[int, dict]
-    # By default, classes have 10 levels.
-    ranks: int = 10
-
-    def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
-        super().post_validate(ruleset)
-        if self.starting_features:
-            ruleset.validate_identifiers(_grantable_identifiers(self.starting_features))
-        if self.multiclass_features:
-            ruleset.validate_identifiers(
-                _grantable_identifiers(self.multiclass_features)
-            )
-        if self.bonus_features:
-            grantables = list(self.bonus_features.values())
-            ruleset.validate_identifiers(_grantable_identifiers(grantables))
+Table = ScalingTable | base_models.DictTable
 
 
 class CostByRank(base_models.BaseModel):
@@ -125,10 +85,154 @@ class CostByRank(base_models.BaseModel):
 CostDef: TypeAlias = int | CostByRank | None
 
 
+class ChoiceDef(base_models.BaseModel):
+    """Describes a choice that can be made related to a feature.
+
+    Choices are always represented by features, which might be subfeatures
+    rather than "normal" features. By default, a choice causes the feature
+    to be Granted, unless a discount is specified (see the `discount` attribute).
+    However, a custom controler could alter this behavior.
+
+    Attributes:
+        name: The user-visible name of the choice.
+        description: A user-visible description of the choice.
+        limit: The number of times this choice can be made. If "unlimited",
+            there is no limit.
+        limit_is_per_rank: If True, the limit is multiplied by the rank of the feature.
+        matcher: A feature matcher that can be used to limit the choices available, assuming
+            this choice selects a feature.
+        starting_class: Only applies to basic classes. If True, the choice is only
+            available when the class is your starting class.
+        controller: If provided, the name of a custom controller to use for this
+            choice. If not provided, the default controller is used.
+        controller_args: If provided, a dictionary of arbitrary data to be used
+            by the custom controller.
+        multi: Allows a choice to be taken multiple times.
+        requires: A requirement that must be met for the choice to be active.
+        choice_requires: Requirements for each choice that must be met to be available.
+    """
+
+    name: str | None = None
+    description: str | None = None
+    limit: int | Literal["unlimited"] = 1
+    limit_is_per_rank: bool = False
+    matcher: base_models.FeatureMatcher | None = None
+    starting_class: bool = False
+    controller: str | None = None
+    controller_data: dict | None = None
+    multi: bool = False
+    requires: base_models.Requirement = base_models.ALWAYS
+    choice_requires: dict[str, base_models.Requirement] | None = None
+
+
+class PowerCard(base_models.BaseModel):
+    name: str | None = None
+    incant: str | None = None
+    call: str | None = None
+    accent: str | None = None
+    target: str | None = None
+    duration: str | None = None
+    delivery: str | None = None
+    refresh: str | None = None
+    effect: str | None = None
+    description: str | None = None
+
+    def should_format_as_card(self) -> bool:
+        return bool(
+            self.incant
+            or self.call
+            or self.accent
+            or self.target
+            or self.duration
+            or self.delivery
+            or self.refresh
+            or self.effect
+        )
+
+
+class ChildPurchaseDef(base_models.BaseModel):
+    basis: str | None = None
+    limit: Table | None = None
+
+
+class BaseFeatureDef(base_models.BaseFeatureDef, PowerCard):
+    cost: CostDef = None
+    grants: Grantable | None = None
+    grant_if: dict[str, base_models.Requirement] | None = None
+    rank_grants: dict[int, Grantable] | None = Field(default=None, alias="level_grants")
+    discounts: Discounts | None = None
+    choices: dict[str, ChoiceDef] | None = None
+    subcard: PowerCard | list[PowerCard] | None = None
+    child_purchase: ChildPurchaseDef | None = None
+
+    def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
+        super().post_validate(ruleset)
+        if self.grants:
+            ruleset.validate_identifiers(
+                _grantable_identifiers(self.grants), path=self.def_path
+            )
+        if self.grant_if:
+            ruleset.validate_identifiers(self.grant_if.keys(), path=self.def_path)
+            for grant, req in self.grant_if.items():
+                # Normalize the requirements. This mirrors BaseFeatureDef.post_validate's
+                # handling of the `requirements` field.
+                ruleset.validate_identifiers(
+                    list(req.identifiers()), path=self.def_path
+                )
+        if self.rank_grants:
+            grantables = list(self.rank_grants.values())
+            ruleset.validate_identifiers(
+                _grantable_identifiers(grantables), path=self.def_path
+            )
+        if self.discounts:
+            ruleset.validate_identifiers(self.discounts.keys(), path=self.def_path)
+        if self.choices:
+            for choice_def in self.choices.values():
+                if choice_def.matcher and choice_def.matcher.id:
+                    ruleset.validate_identifiers(
+                        choice_def.matcher.id, path=self.def_path
+                    )
+        if self.tags and isinstance(ruleset, Ruleset):
+            # Verify that all tags are declared in the ruleset.
+            for tag in self.tags:
+                if tag not in ruleset.tags:
+                    raise ValueError(f"Tag `{tag}` is not defined in the ruleset.")
+
+
+class SubFeatureDef(BaseFeatureDef):
+    type: Literal["subfeature"] = "subfeature"
+    display_type: str | None = None
+
+
+class ClassDef(BaseFeatureDef):
+    type: Literal["class"] = "class"
+    sphere: Literal["arcane", "divine", "martial"] = "martial"
+    starting_features: Grantable | None = None
+    multiclass_features: Grantable | None = None
+    class_type: Literal["basic", "advanced", "epic"] = "basic"
+
+    # At time of writing, only used for Artisan specialization tags.
+    specializations: set[str] | None = None
+
+    # By default, classes have 10 levels.
+    ranks: int = 10
+
+    def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
+        super().post_validate(ruleset)
+        if self.starting_features:
+            ruleset.validate_identifiers(
+                _grantable_identifiers(self.starting_features), path=self.def_path
+            )
+        if self.multiclass_features:
+            ruleset.validate_identifiers(
+                _grantable_identifiers(self.multiclass_features), path=self.def_path
+            )
+
+
 class SkillDef(BaseFeatureDef):
     type: Literal["skill"] = "skill"
+    cost: CostDef  # Required
     category: str = "General Skills"
-    cost: CostDef
     uses: int | None = None
     rank_labels: dict[int, str] | None = None
 
@@ -150,75 +254,167 @@ class FlawDef(BaseFeatureDef):
     category: str = "General Flaws"
     award: int | dict[str, int] = Field(default=0)
     award_mods: dict[str, int] | None = None
+    cost: None = None  # Do not allow a cost definition.
 
     @property
-    def option(self) -> base_models.OptionDef:
+    def option(self) -> base_models.OptionDef | None:
         if self.option_def:
             return self.option_def
         if isinstance(self.award, dict):
             return base_models.OptionDef(
                 values=set(self.award.keys()),
+                multiple=False,
             )
         return None
 
     def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
         super().post_validate(ruleset)
         if self.award_mods:
-            ruleset.validate_identifiers(self.award_mods.keys())
+            ruleset.validate_identifiers(self.award_mods.keys(), path=self.def_path)
 
 
 class PerkDef(BaseFeatureDef):
     type: Literal["perk"] = "perk"
+    cost: CostDef  # Required
     category: str = "General Perks"
-    cost: CostDef
     rank_labels: dict[int, str] | None = None
     creation_only: bool = False
 
 
-class PowerDef(BaseFeatureDef):
+class InnatePower(BaseFeatureDef):
+    type: Literal["innate"] = "innate"
+
+
+class ArchetypePower(BaseFeatureDef):
+    type: Literal["archetype"] = "archetype"
+
+
+class Power(BaseFeatureDef):
     type: Literal["power"] = "power"
-    sphere: Literal["arcane", "divine", "martial", None] = None
-    tier: NonNegativeInt | None = None
-    class_: str | None = Field(alias="class", default=None)
-    incant_prefix: str | None = None
-    incant: str | None = None
-    call: str | None = None
-    accent: str | None = None
-    target: str | None = None
-    duration: str | None = None
-    delivery: str | None = None
-    refresh: str | None = None
-    effect: str | None = None
+    tier: PositiveInt | None = None
+
+
+class Utility(BaseFeatureDef):
+    type: Literal["utility"] = "utility"
+
+
+class Spell(BaseFeatureDef):
+    type: Literal["spell"] = "spell"
+    tier: PositiveInt | None = None
+    sphere: Literal["arcane", "divine", None] = None
+
+
+class Cantrip(BaseFeatureDef):
+    type: Literal["cantrip"] = "cantrip"
+    sphere: Literal["arcane", "divine", None] = None
+
+
+class Culture(BaseFeatureDef):
+    type: Literal["culture"] = "culture"
+
+
+class Religion(BaseFeatureDef):
+    type: Literal["religion"] = "religion"
+
+
+class DevotionPower(BaseFeatureDef):
+    type: Literal["devotion"] = "devotion"
+    cost: CostDef
+    level: Literal["bonus", "basic", "advanced"]
+    parent: str  # Parent is _required_
+
+
+class Breed(BaseFeatureDef):
+    type: Literal["breed"] = "breed"
+
+
+class Subbreed(BaseFeatureDef):
+    type: Literal["subbreed"] = "subbreed"
+    parent: str  # Parent is _required_
+
+
+class BreedChallenge(BaseFeatureDef):
+    type: Literal["breedchallenge"] = "breedchallenge"
+    subbreed: str | None = None
+    award: int | dict[str, int] = 0
+    award_mods: dict[str, int] | None = None
+    costuming: set[str] | bool = False
+    parent: str  # Parent is _required_
+    trait_max_bp: int | None = None
+    trait_required_bp: int | None = None
+    cost: None = None  # Do not allow a cost definition
+
+    @classmethod
+    def default_name(cls) -> str:
+        return "Challenge"
 
     def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
         super().post_validate(ruleset)
-        ruleset.validate_identifiers(self.class_)
-        ruleset.validate_identifiers(_grantable_identifiers(self.grants))
+        if self.subbreed:
+            ruleset.validate_identifiers(self.subbreed, path=self.def_path)
+        parent = ruleset.features[self.parent]
+        if not isinstance(parent, (Breed, BreedChallenge)):
+            raise ValueError(
+                f"Parent {self.parent} of {self.id} expected "
+                f"to be type breed or breedchallenge, but was {parent.type}"
+            )
+
+    @property
+    def option(self) -> base_models.OptionDef | None:
+        if self.option_def:
+            return self.option_def
+        if isinstance(self.award, dict):
+            return base_models.OptionDef(
+                values=set(self.award.keys()),
+                multiple=False,
+            )
+        return None
+
+
+class BreedAdvantage(BaseFeatureDef):
+    type: Literal["breedadvantage"] = "breedadvantage"
+    subbreed: str | None = None
+    parent: str  # Parent is _required_
+
+    @classmethod
+    def default_name(cls) -> str:
+        return "Advantage"
+
+    def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
+        super().post_validate(ruleset)
+        if self.subbreed:
+            ruleset.validate_identifiers(self.subbreed, path=self.def_path)
+        parent = ruleset.features[self.parent]
+        if not isinstance(parent, Breed):
+            raise ValueError(
+                f"Parent {self.parent} of {self.id} expected to be type breed, but was {parent.type}"
+            )
 
 
 FeatureDefinitions: TypeAlias = (
-    ClassDef | SubFeatureDef | SkillDef | PowerDef | FlawDef | PerkDef
+    ClassDef
+    | SubFeatureDef
+    | SkillDef
+    | FlawDef
+    | PerkDef
+    | InnatePower
+    | ArchetypePower
+    | Power
+    | Spell
+    | Cantrip
+    | Utility
+    | Culture
+    | Religion
+    | DevotionPower
+    | Breed
+    | Subbreed
+    | BreedChallenge
+    | BreedAdvantage
 )
 
 
-class AttributeScaling(base_models.BaseModel):
-    base: int
-    factor: float
-    rounding: Literal["up", "down", "nearest"] = "nearest"
-
-    def evaluate(self, value: float) -> int:
-        x = self.base + (value / self.factor)
-        match self.rounding:
-            case "up":
-                return math.ceil(x)
-            case "down":
-                return math.floor(x)
-            case _:
-                return round(x)
-
-
 class Ruleset(base_models.BaseRuleset):
-    engine_class = "camp.engine.rules.tempest.engine.TempestEngine"
+    engine_class: str = "camp.engine.rules.tempest.engine.TempestEngine"
     features: dict[str, FeatureDefinitions] = Field(default_factory=dict)
     breed_count_cap: int = 2
     breed_primary_bp_cap: int = 10
@@ -227,29 +423,120 @@ class Ruleset(base_models.BaseRuleset):
     flaw_overcome: int = 2
     cp_baseline: int = 1
     cp_per_level: int = 2
-    xp_table: dict[int, int]
-    lp: AttributeScaling = AttributeScaling(base=2, factor=10, rounding="up")
-    spikes: AttributeScaling = AttributeScaling(base=2, factor=8, rounding="down")
+    xp_table: Table
+    lp: Table = ScalingTable(base=2, factor=5, rounding="up")
+    spikes: Table = ScalingTable(base=2, factor=6, rounding="down")
+    # Actual rulesets will need to specify their power tables. The
+    # scaling table isn't smart enough to represent whatever formula
+    # the ruleset is using.
+    powers: dict[int, Table] = {
+        0: ScalingTable(base=0, factor=2, rounding="down"),
+        1: ScalingTable(base=1, factor=2, rounding="down"),
+        2: ScalingTable(base=0, factor=6, rounding="down"),
+        3: ScalingTable(base=0, factor=11, rounding="down"),
+        4: ScalingTable(base=0, factor=16, rounding="down"),
+    }
+    spells_known: Table = ScalingTable(base=1, factor=1)
+    spells_prepared: Table = ScalingTable(base=1, factor=1)
+    plural_names: dict[str, str] = {
+        "Class": "Classes",
+        "Utility": "Utilities",
+        "Culture": "Culture",  # You only get one, so don't pluralize.
+        "Religion": "Religion",  # Also only get one.
+        "Bonus": "Bonuses",
+    }
+    tags: dict[str, str | None] = Field(default_factory=dict)
 
     attributes: ClassVar[Iterable[Attribute]] = [
-        Attribute(id="xp", name="Experience Points", abbrev="XP", default_value=0),
-        Attribute(id="xp_level", name="Experience Level", hidden=True, default_value=2),
-        Attribute(id="level", name="Character Level", is_tag=True),
+        Attribute(
+            id="xp",
+            name="Experience Points",
+            abbrev="XP",
+            description="You earn 2 XP per half-day game, or 8 per normal weekend game.",
+            default_value=0,
+        ),
+        Attribute(
+            id="xp_level",
+            name="Experience Level",
+            abbrev="Level",
+            default_value=2,
+            description="Your level, determined by your XP total.",
+        ),
+        Attribute(id="level", name="Character Level", hidden=True, is_tag=True),
         Attribute(id="lp", name="Life Points", abbrev="LP", default_value=2),
         Attribute(id="cp", name="Character Points", abbrev="CP", default_value=0),
-        Attribute(id="breedcap", name="Max Breeds", default_value=2, hidden=True),
-        Attribute(id="bp", name="Breed Points", scoped=True, default_value=0),
+        Attribute(id="breeds", name="Breeds Taken", hidden=True),
+        Attribute(id="bp", name="Breed Points", abbrev="BP", default_value=0),
+        Attribute(
+            id="bp-primary",
+            name="Breed Points (Primary)",
+            abbrev="BP",
+            scoped=False,
+            default_value=0,
+        ),
+        Attribute(
+            id="bp-secondary",
+            name="Breed Points (Secondary)",
+            abbrev="BP",
+            scoped=False,
+            default_value=0,
+        ),
+        Attribute(
+            id="costuming",
+            name="Costuming Points",
+            scoped=True,
+            hidden=True,
+            default_value=0,
+        ),
+        Attribute(
+            id="cap",
+            name="BP Cap",
+            scoped=True,
+            hidden=True,
+        ),
         Attribute(id="spikes", name="Spikes", default_value=0),
-        Attribute(id="bonus_utilities", name="Utilities"),
-        Attribute(id="bonus_cantrips", name="Cantrips"),
-        Attribute(id="active_pool", name="Active Powers / Spells Prepared"),
-        Attribute(id="utility_pool", name="Utility Powers / Cantrips"),
+        Attribute(id="utilities", name="Utilities", scoped=True),
+        Attribute(id="cantrips", name="Cantrips", scoped=True),
         Attribute(
             id="spell_slots",
-            name="Spells",
+            name="Spell Slots",
             scoped=True,
             tiered=True,
-            tier_names=["Novice", "Intermediate", "Greater", "Master"],
+            tier_names=["Novice", "Adept", "Greater", "Master"],
+        ),
+        Attribute(
+            id="spells_known",
+            name="Spells Known",
+            scoped=True,
+        ),
+        # "spell" is a global attribute that counts the number of spell slots
+        # of any sphere you have available at each tier.
+        Attribute(
+            id="spell",
+            name="Spell",
+            scoped=False,
+            tiered=True,
+            tier_names=["Novice", "Adept", "Greater", "Master"],
+        ),
+        # Spellbook is a little different than Spells Known. It's a pool of "bonus" spellbook
+        # capacity granted by skills like Basic Arcane, Spellscholar, etc. Spellbook capacity
+        # is per-sphere, and critically, taking the Sourcerer class blocks it entirely.
+        Attribute(
+            id="spellbook",
+            name="Spellbook",
+            hidden=True,
+            scoped=True,
+        ),
+        Attribute(
+            id="powerbook",
+            name="Powerbook",
+            scoped=True,
+            hidden=True,
+        ),
+        Attribute(
+            id="spells_prepared",
+            name="Spells Prepared",
+            scoped=True,
         ),
         Attribute(
             id="powers",
@@ -258,21 +545,29 @@ class Ruleset(base_models.BaseRuleset):
             tiered=True,
             tier_names=["Basic", "Advanced", "Veteran", "Champion"],
         ),
+        # Power is a global attribute that counts the number of tiered powers you know of any class.
+        Attribute(
+            id="power",
+            name="Power",
+            scoped=False,
+            tiered=True,
+            tier_names=["Basic", "Advanced", "Veteran", "Champion"],
+        ),
         Attribute(
             id="arcane",
-            name="Arcane Caster Levels",
+            name="Arcane",
             is_tag=True,
             hidden=True,
         ),
         Attribute(
             id="divine",
-            name="Divine Caster Levels",
+            name="Divine",
             is_tag=True,
             hidden=True,
         ),
         Attribute(
             id="martial",
-            name="Martial Class Levels",
+            name="Martial",
             is_tag=True,
             hidden=True,
         ),
@@ -281,6 +576,35 @@ class Ruleset(base_models.BaseRuleset):
             name="Caster Levels",
             is_tag=True,
             hidden=True,
+        ),
+        Attribute(
+            id="basic-classes",
+            name="Basic Classes",
+            hidden=True,
+        ),
+        Attribute(
+            id="specialization",
+            name="Specialization",
+            hidden=True,
+            scoped=True,
+        ),
+        Attribute(
+            id="basic",
+            name="Basic",
+            hidden=True,
+            scoped=True,
+        ),
+        Attribute(
+            id="advanced",
+            name="Advanced",
+            hidden=True,
+            scoped=True,
+        ),
+        Attribute(
+            id="devotion",
+            name="Devotion Powers",
+            hidden=True,
+            scoped=False,
         ),
     ]
 
@@ -302,6 +626,8 @@ def _grantable_identifiers(grantables: Grantable | Iterable[Grantable]) -> set[s
                 id_set.update(list(g.keys()))
             case str():
                 id_set.add(g)
+            case GrantDef(id=expr):
+                id_set.add(expr)
             case None:
                 pass
             case _:

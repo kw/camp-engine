@@ -1,20 +1,12 @@
 [project]
 name = 'camp-engine'
 version = '0.0.1'
-authors = [
-    { name="Ken Moriarty", email="kwatford@gmail.com"},
-]
+authors = [{ name = "Ken Moriarty", email = "kwatford@gmail.com" }]
 description = "Rules engines for the Camp app"
 readme = "README.md"
-license = { file="LICENSE" }
-requires-python = ">=3.10"
-classifiers = [
-    "Programming Language :: Python :: 3",
-]
-dependencies = [
-    "pydantic ~= 1.9",
-    "tomli ~= 2.0; python_version<'3.11'",
-]
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+classifiers = ["Programming Language :: Python :: 3"]
 
 [project.urls]
 "Homepage" = "https://github.com/kw/camp-engine"
@@ -23,28 +15,29 @@ dependencies = [
 profile = "black"
 force_single_line = true
 
-[tool.pytest.ini_options]
-python_files = ["tests.py", "test_*.py", "*_tests.py", "*_test.py"]
-pythonpath = ["src"]
-testpaths = ["tests"]
-
 [tool.poetry]
 name = "camp-engine"
 version = "0.1.0"
 description = ""
 authors = ["Ken Moriarty <kwatford@gmail.com>"]
 readme = "README.md"
-packages = [{include = "camp", from = "src"}]
+packages = [{ include = "camp", from = "src" }]
 
 [tool.poetry.dependencies]
-python = "^3.10"
-pydantic = ">=1.10,<2.0"
+python = "^3.12.0"
+pydantic = "^2.1.1"
+pyyaml = "^6.0"
 
 [tool.poetry.group.dev.dependencies]
-ipython = "^8.11.0"
-pytest = "7.1"
-pre-commit = "^3.2.0"
+ipython = "~=8.2"
+pre-commit = "*"
+pytest = "^7.1"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+python_files = ["tests.py", "test_*.py", "*_tests.py", "*_test.py"]
+pythonpath = ["src"]
+testpaths = ["tests"]

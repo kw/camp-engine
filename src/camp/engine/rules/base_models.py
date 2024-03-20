@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import dataclasses
+import datetime
 import re
 import types
 import typing
 from abc import ABC
 from abc import abstractmethod
+from functools import cached_property
+from typing import Annotated
 from typing import Any
 from typing import ClassVar
 from typing import Iterable
@@ -16,14 +20,14 @@ import pydantic
 
 from .. import utils
 from ..utils import make_uuid
-from ..utils import maybe_iter
 from . import base_engine
 from .decision import Decision
 
 _REQ_SYNTAX = re.compile(
-    r"""(?P<prop>[a-zA-Z0-9_-]+)
-    (?:@(?P<slot>-?[a-zA-Z0-9_-]+))?          # Choice, aka "@4"
-    (?:\#(?P<option>[a-zA-Z0-9?_-]+))?   # Skill options, aka "#Undead_Lore"
+    r"""(?P<prop>[^\s.@+:$<]+)
+    (?:\.(?P<attribute>[^\s.@+:$<.]+))?  # Attribute, aka ".utilities"
+    (?:@(?P<slot>-?[^\s.@+:$<.]+))?     # Choice, aka "@4"
+    (?:\+(?P<option>[^\s.@+:$<.]+))?   # Skill options, aka "+Undead_Lore"
     (?::(?P<value>-?\d+))?       # Minimum value, aka ":5"
     (?:\$(?P<single>-?\d+))?       # Minimum value in single thing, aka "$5"
     (?:<(?P<less_than>-?\d+))?     # Less than value, aka "<5"
@@ -31,19 +35,19 @@ _REQ_SYNTAX = re.compile(
     re.VERBOSE,
 )
 
-FlagValue: TypeAlias = bool | int | float | str
+FlagValue: TypeAlias = bool | int | float | str | None
 FlagValues: TypeAlias = list[FlagValue] | FlagValue
 
 
-class BaseModel(pydantic.BaseModel):
-    class Config:
-        extra = pydantic.Extra.forbid
+class BaseModel(pydantic.BaseModel, extra="forbid"):
+    """Base model for all ruleset models."""
 
 
 class Attribute(BaseModel):
     id: str
     name: str
     abbrev: str | None = None
+    description: str | None = None
     default_value: int = 0
     hidden: bool = False
     scoped: bool = False
@@ -53,11 +57,18 @@ class Attribute(BaseModel):
     compute: str | None = None
     property_name: str | None = None
 
+    @property
+    def property_id(self) -> str:
+        return self.property_name or self.id.replace("-", "_")
 
-class BoolExpr(BaseModel, ABC):
+
+class BoolExpr(BaseModel, ABC, frozen=True):
     @abstractmethod
-    def evaluate(self, char: base_engine.CharacterController) -> Decision:
-        ...
+    def evaluate(
+        self,
+        char: base_engine.CharacterController,
+        overrides: dict[str, int] | None = None,
+    ) -> Decision: ...
 
     def identifiers(self) -> set[str]:
         return set()
@@ -65,25 +76,41 @@ class BoolExpr(BaseModel, ABC):
 
 # The model class or union of classes to be parsed into models.
 ModelDefinition: TypeAlias = Type[BaseModel] | types.UnionType
-Identifiers: TypeAlias = str | list[str] | None
+Identifiers: TypeAlias = str | set[str] | list[str] | Iterable[str] | None
+
+
+class Always(BoolExpr):
+    def evaluate(
+        self,
+        char: base_engine.CharacterController,
+        overrides: dict[str, int] | None = None,
+    ) -> Decision:
+        return Decision.OK
+
+
+ALWAYS = Always()
 
 
 class AnyOf(BoolExpr):
-    any: Requirements
+    any: list[BoolExpr]
 
-    def evaluate(self, char: base_engine.CharacterController) -> Decision:
+    def evaluate(
+        self,
+        char: base_engine.CharacterController,
+        overrides: dict[str, int] | None = None,
+    ) -> Decision:
         messages: list[str] = []
-        for expr in maybe_iter(self.any):
+        for expr in self.any:
             if isinstance(expr, str):
                 raise TypeError(f"Expression '{expr}' expected to be parsed by now.")
-            if rd := expr.evaluate(char):
+            if rd := expr.evaluate(char, overrides=overrides):
                 return rd
-            messages.extend(rd.reason or "[unspecified failure reason]")
+            messages.append(rd.reason or "[unspecified failure reason]")
         return Decision(success=False, reason=f"AnyOf({'; '.join(messages)})")
 
     def identifiers(self) -> set[str]:
         ids = set()
-        for op in maybe_iter(self.any):
+        for op in self.any:
             if isinstance(op, str):
                 ids.add(op)
             else:
@@ -92,19 +119,23 @@ class AnyOf(BoolExpr):
 
 
 class AllOf(BoolExpr):
-    all: Requirements
+    all: list[BoolExpr]
 
-    def evaluate(self, char: base_engine.CharacterController) -> Decision:
-        for expr in maybe_iter(self.all):
+    def evaluate(
+        self,
+        char: base_engine.CharacterController,
+        overrides: dict[str, int] | None = None,
+    ) -> Decision:
+        for expr in self.all:
             if isinstance(expr, str):
                 raise TypeError(f"Expression '{expr}' expected to be parsed by now.")
-            if not (rd := expr.evaluate(char)):
+            if not (rd := expr.evaluate(char, overrides=overrides)):
                 return rd
         return Decision(success=True)
 
     def identifiers(self) -> set[str]:
         ids = set()
-        for op in maybe_iter(self.all):
+        for op in self.all:
             if isinstance(op, str):
                 ids.add(op)
             else:
@@ -113,19 +144,23 @@ class AllOf(BoolExpr):
 
 
 class NoneOf(BoolExpr):
-    none: Requirements
+    none: list[BoolExpr]
 
-    def evaluate(self, char: base_engine.CharacterController) -> Decision:
-        for expr in maybe_iter(self.none):
+    def evaluate(
+        self,
+        char: base_engine.CharacterController,
+        overrides: dict[str, int] | None = None,
+    ) -> Decision:
+        for expr in self.none:
             if isinstance(expr, str):
                 raise TypeError(f"Expression '{expr}' expected to be parsed by now.")
-            if expr.evaluate(char):
+            if expr.evaluate(char, overrides=overrides):
                 return Decision(success=False, reason=f"Not({expr})")
         return Decision(success=True)
 
     def identifiers(self) -> set[str]:
         ids: set[str] = set()
-        for op in maybe_iter(self.none):
+        for op in self.none:
             if isinstance(op, str):
                 ids.add(op)
             else:
@@ -141,6 +176,10 @@ class PropExpression(BoolExpr):
 
     Attributes:
         prop: The property being tested. Often a feature ID. Required.
+        attribute: The scoped attribute of the property being tested.
+            For example, "artisan.utilities" is the number of artisan utility
+            powers available to purchase. Global attributes (such as "level")
+            are not scoped like this.
         option: Text value listed after a #. Ex: lore#Undead
             This is handled specially if the value is '?', which means
             "You need the same option in the indicated skill as you are
@@ -157,56 +196,88 @@ class PropExpression(BoolExpr):
     """
 
     prop: str
-    slot: str | None = None
+    attribute: str | None = None
+    slot: str | int | None = None
     option: str | None = None
-    value: int | None = None
+    value: int = 1
     single: int | None = None
     less_than: int | None = None
+    prefixes: tuple[str, ...] = ()
 
     @property
     def full_id(self) -> str:
-        return full_id(self.prop, self.option)
+        return self.unparse(
+            prop=self.prop,
+            slot=self.slot,
+            option=self.option,
+            prefixes=self.prefixes,
+        )
 
-    def evaluate(self, char: base_engine.CharacterController) -> Decision:
-        id = self.unparse(prop=self.prop, slot=self.slot, option=self.option)
-        if not char.has_prop(id):
-            return Decision(success=False, reason=f"{self!r} [{id} not present]")
-        ranks = char.get_prop(id)
-        if self.value is not None:
-            if ranks < self.value:
-                return Decision(
-                    success=False, reason=f"{self!r} [{ranks} < {self.value}]"
-                )
-        elif self.less_than is not None:
+    def evaluate(
+        self,
+        char: base_engine.CharacterController,
+        overrides: dict[str, int] | None = None,
+    ) -> Decision:
+        expr = self.unparse(
+            prop=self.prop,
+            slot=self.slot,
+            option=self.option,
+            prefixes=self.prefixes,
+        )
+        if overrides and expr in overrides:
+            ranks = overrides[expr]
+        else:
+            ranks = char.get(expr)
+        if self.less_than is not None:
             if ranks >= self.less_than:
                 return Decision(
                     success=False, reason=f"{self!r} [{ranks} ≥ {self.less_than}]"
                 )
         elif self.single is not None:
-            max_ranks = char.get_prop(f"{id}$0")
+            max_ranks = char.get(f"{expr}$0")
             if max_ranks < self.single:
                 return Decision(
                     success=False, reason=f"{self!r} [{max_ranks} < {self.single}]"
                 )
-        else:
-            if ranks < 1:
-                return Decision(success=False, reason=f"{self!r} [ranks={ranks}]")
+        elif ranks < self.value:
+            return Decision(success=False, reason=f"{self!r} [{ranks} < {self.value}]")
         return Decision(success=True)
 
     def identifiers(self) -> set[str]:
-        return set([self.prop])
+        return set(self.prefixes) | set([self.prop])
+
+    def pop(self) -> tuple[str | None, PropExpression]:
+        """Takes off the first layer of prefix and returns the prefix and new expression.
+
+        For example, if the prefix is (A, B, C), returns A, PropExpression(prefixes=(B, C), ...)
+        If there are no more prefixes, returns None for the prefix and the original expression.
+        """
+        if self.prefixes:
+            first, *rest = self.prefixes
+            return first, self.model_copy(update={"prefixes": rest})
+        return None, self
+
+    def noprefix(self) -> PropExpression:
+        """Returns a copy of the expression with no prefixes."""
+        return self.model_copy(update={"prefixes": ()})
 
     @classmethod
     def parse(cls, req: str | PropExpression) -> PropExpression:
         if isinstance(req, PropExpression):
             # Convenient pass-thru for methods that can take the str or parsed version.
             return req
-        if match := _REQ_SYNTAX.fullmatch(req):
+        *prefixes, expr = req.split(".")
+
+        if match := _REQ_SYNTAX.fullmatch(expr):
             groups = match.groupdict()
             prop = groups["prop"]
-            slot = t if (t := groups.get("slot")) else None
+            if slot := groups.get("slot"):
+                try:
+                    slot = int(slot)
+                except ValueError:
+                    pass
             option = o.replace("_", " ") if (o := groups.get("option")) else None
-            value = int(m) if (m := groups.get("value")) else None
+            value = int(m) if (m := groups.get("value")) else 1
             single = int(s) if (s := groups.get("single")) else None
             less_than = int(lt) if (lt := groups.get("less_than")) else None
             return cls(
@@ -216,6 +287,7 @@ class PropExpression(BoolExpr):
                 value=value,
                 single=single,
                 less_than=less_than,
+                prefixes=tuple(prefixes),
             )
         raise ValueError(f"Requirement parse failure for {req}")
 
@@ -223,18 +295,21 @@ class PropExpression(BoolExpr):
     def unparse(
         cls,
         prop: str,
-        slot: str | None = None,
+        slot: str | int | None = None,
         option: str | None = None,
-        value: int | None = None,
+        value: int = 1,
         single: int | None = None,
         less_than: int | None = None,
+        prefixes: Iterable[str] | None = None,
     ):
-        req = prop
+        req = prop or "unknown"
+        if prefixes:
+            req = ".".join(prefixes) + "." + req
         if slot:
             req += f"@{slot}"
         if option:
-            req += f"#{option.replace(' ', '_')}"
-        if value:
+            req += f"+{option.replace(' ', '_')}"
+        if value != 1:
             req += f":{value}"
         if single:
             req += f"${single}"
@@ -250,18 +325,72 @@ class PropExpression(BoolExpr):
             value=self.value,
             single=self.single,
             less_than=self.less_than,
+            prefixes=self.prefixes,
         )
 
 
-# The requirements language involves a lot of recursive definitions,
-# so define it here. Pydantic models using forward references need
-# to be poked to know the reference is ready, so update them as well.
-Requirement: TypeAlias = AnyOf | AllOf | NoneOf | PropExpression | str
-Requirements: TypeAlias = list[Requirement] | Requirement | None
-AnyOf.update_forward_refs()
-AllOf.update_forward_refs()
-NoneOf.update_forward_refs()
-PropExpression.update_forward_refs()
+def parse_req(req: Any) -> Requirement:
+    match req:
+        case [*requirements]:
+            return AllOf(all=[parse_req(r) for r in requirements])
+        case {"all": [*requirements]}:
+            return AllOf(all=[parse_req(r) for r in requirements])
+        case {"any": [*requirements]}:
+            return AnyOf(any=[parse_req(r) for r in requirements])
+        case {"none": [*requirements]}:
+            return NoneOf(none=[parse_req(r) for r in requirements])
+        case str():
+            if req.startswith("-"):
+                return NoneOf(none=[PropExpression.parse(req[1:])])
+            return PropExpression.parse(req)
+        case None | {}:
+            return ALWAYS
+    raise ValueError(f"Requirement parse failure for {req}")
+
+
+Requirement = Annotated[BoolExpr, pydantic.BeforeValidator(parse_req)]
+AnyOf.model_rebuild()
+AllOf.model_rebuild()
+NoneOf.model_rebuild()
+PropExpression.model_rebuild()
+
+
+class Table(ABC):
+    @abstractmethod
+    def evaluate(self, key: int) -> int:
+        """Returns the table value for the given key."""
+
+    @abstractmethod
+    def bounds(self) -> tuple[int, int]:
+        """Returns the boundaries of the table."""
+
+    def reverse_lookup(self, value: int) -> int:
+        """Return the key that best matches the given value.
+
+        If an exact match isn't found, the key for the next lowest value is returned.
+        """
+        # Inefficient generic lookup by default.
+        low, high = self.bounds()
+        for k in range(low, high + 1):
+            v = self.evaluate(k)
+            if v == value:
+                return k
+            elif v > value:
+                return k - 1
+        return high
+
+
+class DictTable(Table, pydantic.RootModel):
+    root: dict[int, int]
+
+    def evaluate(self, key: int) -> int:
+        return utils.table_lookup(self.root, key)
+
+    def bounds(self) -> tuple[int, int]:
+        return min(self.root.keys()), max(self.root.keys())
+
+    def reverse_lookup(self, value: int) -> int:
+        return utils.table_reverse_lookup(self.root, value)
 
 
 class OptionDef(BaseModel):
@@ -290,9 +419,10 @@ class OptionDef(BaseModel):
 
     freeform: bool = False
     values: set[str] | None = None
-    requires: dict[str, Requirements] | None = None
+    requires: dict[str, Requirement] | None = None
     inherit: str | None = None
     multiple: bool | pydantic.PositiveInt = True
+    descriptions: dict[str, str] | None = None
 
 
 class BaseFeatureDef(BaseModel):
@@ -305,6 +435,7 @@ class BaseFeatureDef(BaseModel):
             is optional. If not provided, the file's base name will be used.
             Typically this will not be specified unless multiple features are provided
             in a single YAML document stream.
+        parent: If this feature is logically nested within another feature, list its ID here.
         name: The user-visible name of the feature.
         type: The type of feature. Subclasses will normally override this with
             to specify the type literally, which can aid the parser in identifying
@@ -325,17 +456,31 @@ class BaseFeatureDef(BaseModel):
         option_def: If a feature has "options", the definition should be provided here. See OptionDef
             for more details, but tl;dr this allows a single definition that can have multiple independent
             purchases, such as a "Lore" skill that can be purchased as "Lore [Undead]" or "Lore [Arcane]".
+        supersedes: Suppresses the given feature from display on the main character sheet if this feature
+            has ranks. For example, if you don't want to show Forage I if you've got Forage II.
     """
 
     id: str
     name: str
     type: str
-    requires: Requirements = None
+    parent: str | None = None
+    supersedes: str | None = None
+    category: str | None = None
+    category_priority: float = 100.0
+    requires: Requirement = ALWAYS
+    soft_requires: Requirement = ALWAYS
     def_path: str | None = None
     tags: set[str] = pydantic.Field(default_factory=set)
     description: str | None = None
+    short_description: str | None = None
     ranks: int | Literal["unlimited"] = 1
     option_def: OptionDef | None = pydantic.Field(default=None, alias="option")
+    inherit_children: set[str] | None = None
+    extra_children: set[str] | None = None
+    _child_ids: set[str] = pydantic.PrivateAttr(default_factory=set)
+    _uncles: set[str] = pydantic.PrivateAttr(default_factory=set)
+    _parent_def: BaseFeatureDef | None = pydantic.PrivateAttr(default=None)
+    _superseded_by: str | None = pydantic.PrivateAttr(default=None)
 
     @classmethod
     def default_name(cls) -> str:
@@ -346,7 +491,13 @@ class BaseFeatureDef(BaseModel):
 
     @classmethod
     def type_key(cls) -> str:
-        return cls.__fields__["type"].type_.__args__[0]
+        if a := cls.model_fields["type"].annotation:
+            return a.__args__[0]
+        return "None"
+
+    @property
+    def has_ranks(self) -> bool:
+        return self.ranks == "unlimited" or self.ranks > 1
 
     @property
     def option(self) -> OptionDef | None:
@@ -357,14 +508,44 @@ class BaseFeatureDef(BaseModel):
         """
         return self.option_def
 
-    @option.setter
-    def option(self, value: OptionDef | None):
-        self.option_def = value
+    @property
+    def child_ids(self) -> set[str]:
+        return self._child_ids
+
+    @property
+    def parent_def(self) -> BaseFeatureDef | None:
+        return self._parent_def
+
+    @property
+    def uncle_ids(self) -> set[str]:
+        return self._uncles
+
+    @property
+    def superseded_by(self) -> str | None:
+        return self._superseded_by
 
     def post_validate(self, ruleset: BaseRuleset) -> None:
-        self.requires = parse_req(self.requires)
         if self.requires:
-            ruleset.validate_identifiers(list(self.requires.identifiers()))
+            ruleset.validate_identifiers(
+                list(self.requires.identifiers()), path=self.def_path
+            )
+        if self.parent:
+            ruleset.validate_identifiers([self.parent], path=self.def_path)
+            parent = ruleset.features[self.parent]
+            parent._child_ids.add(self.id)
+            self._parent_def = parent
+        if self.supersedes:
+            ruleset.validate_identifiers([self.supersedes], path=self.def_path)
+            previous = ruleset.features[self.supersedes]
+            previous._superseded_by = self.id
+        if self.inherit_children:
+            ruleset.validate_identifiers(self.inherit_children, path=self.def_path)
+            for uncle in self.inherit_children:
+                uncle_model = ruleset.features[uncle]
+                uncle_model._uncles.add(self.id)
+        if self.extra_children:
+            ruleset.validate_identifiers(self.extra_children, path=self.def_path)
+            self._child_ids.update(self.extra_children)
 
 
 class BadDefinition(BaseModel):
@@ -378,10 +559,10 @@ class BadDefinition(BaseModel):
     """
 
     path: str
-    data: typing.Any
-    raw_data: typing.Any
-    exception_type: str
-    exception_message: str
+    data: typing.Any | None = None
+    raw_data: typing.Any | None = None
+    exception_type: str | None = None
+    exception_message: str | None = None
 
 
 class BaseRuleset(BaseModel, ABC):
@@ -397,6 +578,7 @@ class BaseRuleset(BaseModel, ABC):
 
     name_overrides: dict[str, str] = pydantic.Field(default_factory=dict)
     _display_names: dict[str, str] = pydantic.PrivateAttr(default_factory=dict)
+    plural_names: dict[str, str] = pydantic.Field(default_factory=dict)
     attributes: ClassVar[Iterable[Attribute]] = []
 
     def __init__(self, **data) -> None:
@@ -436,6 +618,19 @@ class BaseRuleset(BaseModel, ABC):
         """
         return self._display_names
 
+    def abbreviated_name(self, id) -> str | None:
+        if attr := self.attribute_map.get(id, None):
+            if attr.abbrev:
+                return attr.abbrev
+        return None
+
+    def pluralize(self, name: str) -> str:
+        """Returns the plural form of the given name.
+
+        If the name is not found, returns the name with an 's' appended.
+        """
+        return self.plural_names.get(name, name + "s")
+
     @property
     def engine(self) -> base_engine.Engine:
         engine_class = utils.import_name(self.engine_class)
@@ -446,8 +641,7 @@ class BaseRuleset(BaseModel, ABC):
         return engine_class(self)
 
     @abstractmethod
-    def feature_model_types(self) -> ModelDefinition:
-        ...
+    def feature_model_types(self) -> ModelDefinition: ...
 
     def identifier_defined(self, identifier: str) -> bool:
         """Check if the identifier is meaningful in the ruleset.
@@ -461,7 +655,7 @@ class BaseRuleset(BaseModel, ABC):
         """
         return identifier in self.features or identifier in self.attribute_map
 
-    def validate_identifiers(self, identifiers: Identifiers) -> None:
+    def validate_identifiers(self, identifiers: Identifiers, path: str) -> None:
         id_list: list[str]
         match identifiers:
             case str():
@@ -474,16 +668,15 @@ class BaseRuleset(BaseModel, ABC):
         # of requirements or grants. For example, "craftsman#Artist",
         # "alchemy:3", "!magic-insensitive"
         for req in id_list:
-            if not (parsed_req := parse_req(req)):
-                continue
+            parsed_req = parse_req(req)
             for id in parsed_req.identifiers():
                 if not self.identifier_defined(id):
                     raise ValueError(
-                        f'Required identifier "{id}" not found in ruleset.'
+                        f'Required identifier "{id}" not found in ruleset. ({path=})'
                     )
 
 
-class FeatureMatcher(BaseModel):
+class FeatureMatcher(BaseModel, extra="allow"):
     """Matcher for checking if a particular feature can be used in some context.
 
     Generally this is used in choice definitions that want to say something like
@@ -497,6 +690,7 @@ class FeatureMatcher(BaseModel):
             'negative', depending on whether they're prefixed with a '-'. If positive
             tags are present, the feature must have them to pass. If negative tags are
             present, the feature must _not_ have them to pass. These can be combined.
+        parent: Either the ID of the parent, or another matcher to test against the parent.
         attrs: Automatically populated with any extra attributes when parsed from
             data files. Any key is interpreted as a property of the feature object,
             and the property's value must equal it.
@@ -505,21 +699,23 @@ class FeatureMatcher(BaseModel):
     id: Identifiers = None
     type: str | None = None
     tags: str | set[str] | None = None
+    parent: FeatureMatcher | str | None = None
     attrs: dict[str, Any] = pydantic.Field(default_factory=dict)
 
-    class Config:
-        extra = pydantic.Extra.allow
+    @pydantic.model_validator(mode="before")
+    @classmethod
+    def _build_attrs(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            defined_fields = {
+                field.alias or name for name, field in cls.model_fields.items()
+            }
 
-    @pydantic.root_validator(pre=True)
-    def _build_attrs(cls, values: dict[str, Any]) -> dict[str, Any]:
-        defined_fields = {field.alias for field in cls.__fields__.values()}
-
-        attrs: dict[str, Any] = values.get("attrs", {})
-        for field, value in values.items():
-            if field not in defined_fields:
-                attrs[field] = value
-        values["attrs"] = attrs
-        return values
+            attrs: dict[str, Any] = data.get("attrs", {})
+            for field, value in data.items():
+                if field not in defined_fields:
+                    attrs[field] = value
+            data["attrs"] = attrs
+        return data
 
     def matches(self, feature: BaseFeatureDef) -> bool:
         """Does this feature match the matcher?
@@ -529,7 +725,10 @@ class FeatureMatcher(BaseModel):
         """
         if self.id is not None:
             if isinstance(self.id, str):
-                if feature.id != self.id:
+                if self.id.startswith("-"):
+                    if self.id[1:] == feature.id:
+                        return False
+                elif feature.id != self.id:
                     return False
             elif feature.id not in self.id:
                 return False
@@ -547,17 +746,39 @@ class FeatureMatcher(BaseModel):
                 return False
             if negative_tags and negative_tags.issubset(feature.tags):
                 return False
+        if self.parent is not None:
+            if isinstance(self.parent, str):
+                if self.parent[0] == "-":
+                    if feature.parent == self.parent[1:]:
+                        return False
+                elif feature.parent != self.parent:
+                    return False
+            elif isinstance(self.parent, FeatureMatcher):
+                if not feature.parent_def or not self.parent.matches(
+                    feature.parent_def
+                ):
+                    return False
         # Arbitrary attribute matcher.
         for attr, value in self.attrs.items():
-            if not hasattr(feature, attr):
-                return False
-            if getattr(feature, attr) != value:
-                return False
+            if isinstance(value, str) and value.startswith("^"):
+                # Not Like matcher. Matches if the attribute is missing or the value
+                # isn't a substring of it.
+                if attr_value := getattr(feature, attr, None):
+                    if value[1:] in attr_value:
+                        return False
+            elif isinstance(value, bool):
+                # If the value given is a bool, perform truthiness matching.
+                return bool(getattr(feature, attr, False)) == value
+            else:
+                if not hasattr(feature, attr):
+                    return False
+                if getattr(feature, attr) != value:
+                    return False
         # If none of the filters was negative, this is a match
         return True
 
 
-class CharacterMetadata(BaseModel):
+class CharacterMetadata(pydantic.BaseModel):
     """Overarching character data.
 
     While a character might have multiple sheets for various occassions,
@@ -573,14 +794,8 @@ class CharacterMetadata(BaseModel):
     capped event.
 
     Attributes:
-        id: The character ID this applies to.
-        player_id: The player ID this applies to.
-        character_name: The actual name of the character. A single character
-            might have various sheets with their own sheet names, but the
-            actual character name will be in the metadata.
-        player_name: The actual name of the player. Mostly here for offline
-            use in the future, where a character data blob might need to be
-            printed without datatabase access.
+        events_played: Number of events this character has been played.
+        last_played: Date when the character was last played.
         awards: Awarded currency values. Since the award schedule isn't necessarily
             deterministic, this is left as an out-of-engine concern. For example,
             Tempest awards bonus CP for turning in a backstory, and +1 CP for each
@@ -595,15 +810,14 @@ class CharacterMetadata(BaseModel):
             see certain secret purchase options, and so on.
     """
 
-    id: str = pydantic.Field(default_factory=make_uuid)
-    player_id: str | None = None
-    character_name: str | None = None
-    player_name: str | None = None
+    events_played: int = 0
+    last_played: datetime.date | None = None
     awards: dict[str, int] = pydantic.Field(default_factory=dict)
     flags: dict[str, FlagValues] = pydantic.Field(default_factory=dict)
+    grants: list[str] = pydantic.Field(default_factory=list)
 
 
-class CharacterModel(BaseModel, ABC):
+class CharacterModel(pydantic.BaseModel, ABC):
     """Represents the serializable data of a character sheet.
 
     Individual rulesets can override this to add fields for
@@ -631,14 +845,14 @@ class CharacterModel(BaseModel, ABC):
             base currency values, special flags, etc.
     """
 
-    id: str = pydantic.Field(default_factory=make_uuid)
+    id: str | int = pydantic.Field(default_factory=make_uuid)
     ruleset_id: str
     ruleset_version: str
     metadata: CharacterMetadata = pydantic.Field(default_factory=CharacterMetadata)
     name: str | None = None
 
 
-class RankMutation(BaseModel):
+class RankMutation(pydantic.BaseModel):
     """Represents a specific purchase event for a character feature.
 
     Note that "purchase" may be a misnomer if your game offers a way to
@@ -657,6 +871,7 @@ class RankMutation(BaseModel):
             use the default of "1". If negative, this is a sellback or overcome.
     """
 
+    type: Literal["rank"] = "rank"
     id: str
     option: str | None = None
     ranks: int = 1
@@ -670,7 +885,7 @@ class RankMutation(BaseModel):
         return PropExpression(prop=self.id, option=self.option, value=self.ranks)
 
     @classmethod
-    def parse(self, expr: str) -> RankMutation:
+    def parse(cls, expr: str) -> RankMutation:
         prop = PropExpression.parse(expr)
         return RankMutation(
             id=prop.prop,
@@ -679,19 +894,22 @@ class RankMutation(BaseModel):
         )
 
 
-class ChoiceMutation(BaseModel):
+class ChoiceMutation(pydantic.BaseModel):
+    type: Literal["choice"] = "choice"
     id: str
     choice: str
     value: str
     remove: bool = False
 
 
-class NoteMutation(BaseModel):
+class NoteMutation(pydantic.BaseModel):
+    type: Literal["note"] = "note"
     id: str
     note: str
 
 
-class PlotMutation(BaseModel):
+class PlotMutation(pydantic.BaseModel):
+    type: Literal["plot"] = "plot"
     id: str
     ranks: int | None = None
     suppress: bool | None = None
@@ -701,30 +919,91 @@ class PlotMutation(BaseModel):
     player_note: str | None = None
 
 
+class Discount(BaseModel):
+    """Describes a cost discount.
+
+    Attributes:
+        discount: The amount to change the cost. For example, `1` means "the feature
+            costs 1 CP less per rank".
+        minimum: The minimum cost (per rank). If it's a discount, usually 1 or 0.
+        ranks: The number of ranks that this can apply to.
+    """
+
+    discount: int
+    ranks: int | None = None
+
+    @classmethod
+    def cast(cls, discount: Discount | int) -> Discount:
+        if isinstance(discount, int):
+            return cls(discount=discount)
+        return discount
+
+
 Mutation = RankMutation | ChoiceMutation | NoteMutation | PlotMutation
+MutationAdapter = pydantic.TypeAdapter(Mutation)
+
+
+def load_mutation(data: dict) -> Mutation:
+    return MutationAdapter.validate_python(data)
+    # return pydantic.parse_obj_as(Mutation, data)
+
+
+def dump_mutation(mutation: Mutation) -> dict:
+    return utils.dump_dict(mutation, exclude_unset=False, exclude_defaults=False)
 
 
 def full_id(id: str, option: str | None) -> str:
     if option:
-        return f"{id}#{option.replace(' ', '_')}"
+        return f"{id}+{option.replace(' ', '_')}"
     else:
         return id
 
 
-def parse_req(req: Requirements) -> BoolExpr | None:
-    if not req:
-        return None
-    if isinstance(req, list):
-        return AllOf(all=[parse_req(r) for r in req])
-    if isinstance(req, AllOf):
-        return AllOf(all=[parse_req(r) for r in maybe_iter(req.all)])
-    if isinstance(req, AnyOf):
-        return AnyOf(any=[parse_req(r) for r in maybe_iter(req.any)])
-    if isinstance(req, NoneOf):
-        return NoneOf(none=[parse_req(r) for r in maybe_iter(req.none)])
-    if isinstance(req, str):
-        if req.startswith("-"):
-            return NoneOf(none=[PropExpression.parse(req[1:])])
-        else:
-            return PropExpression.parse(req)
-    raise ValueError(f"Requirement parse failure for {req}")
+@dataclasses.dataclass(frozen=True)
+class Issue:
+    """A problem that requires attention.
+
+    Issues typically arise from regressive character edits. For example,
+    if you remove a skill that grants an additional power slot, you may
+    now have more powers than slots, and a controller responsible for keeping
+    track of such things would generate an Issue to report it. Since issues do
+    not prevent operating on a character in the way that a validation failure
+    does, the player is free to resolve this either by removing one of the powers
+    of their choice or purchasing some other way of granting that power slot.
+
+    There are various reasons that we may need to uniquely identify an issue,
+    which might include a member of plot or logisitcs looking at a character
+    registered for a game, deciding that the issue is actually intended, and
+    muting it so that the character can be played.
+
+    Attributes:
+        feature_id: The ID string identifying the source feature controller.
+            If no feature is responsible for this validation issue, None.
+        choice: If the validation issues comes from a choice controller
+            within the feature, the ID of the choice. Othewise, None.
+        issue_code: A code identifying the issue. This allows specific
+            issues that might happen within a feature or choice to be
+            identified.
+    """
+
+    issue_code: str
+    reason: str
+    feature_id: str | None = None
+    choice: str | None = None
+
+    @cached_property
+    def expr(self) -> PropExpression:
+        """Parsed feature ID expression."""
+        return PropExpression.parse(self.feature_id or "unknown")
+
+    @property
+    def qualified_issue_code(self) -> str:
+        """Qualified issue code, of the format `feature:choice:issue`.
+
+        Any missing component will be empty.
+        Examples:
+        - cleric::too-many-powers
+        - extra-choices:choice1:too-many-choices
+        - ::not-enough-cp
+        """
+        return f"{self.feature_id or ''}:{self.choice or ''}:{self.issue_code}"

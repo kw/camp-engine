@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from pydantic import Field
 
 
-class Decision(BaseModel):
+class Decision(BaseModel, frozen=True):
     """
     Attributes:
         success: True if the mutation succeeds or query succeeds.
@@ -31,7 +31,7 @@ class Decision(BaseModel):
 
     success: bool = False
     needs_option: bool = False
-    reason: str | None = None
+    reason: str = "Unknown"
     amount: int | None = None
     need_currency: dict[str, int] | None = None
     mutation_applied: bool = False
@@ -39,24 +39,28 @@ class Decision(BaseModel):
     traceback: str | None | bool = Field(default=None, repr=False)
 
     OK: ClassVar[Decision]
+    NO: ClassVar[Decision]
+    NEEDS_OPTION: ClassVar[Decision]
+    NEEDS_OPTION_FAIL: ClassVar[Decision]
 
-    @pydantic.root_validator(pre=True)
-    def _capture_traceback(cls, values: dict[str, Any]) -> dict[str, Any]:
-        success: bool | None = values.get("success")
-        traceback: str | None | bool = values.get("traceback")
-        if traceback is True or (traceback is None and not success):
-            traceback = "".join(tb.format_stack(limit=5)[:-1])
-        else:
-            traceback = None
-        values["traceback"] = traceback
-        return values
+    @pydantic.model_validator(mode="before")
+    @classmethod
+    def _capture_traceback(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            success: bool | None = data.get("success")
+            traceback: str | None | bool = data.get("traceback")
+            if traceback is True or (traceback is None and not success):
+                traceback = "".join(tb.format_stack(limit=5)[:-1])
+            else:
+                traceback = None
+            data["traceback"] = traceback
+        return data
 
     def __bool__(self) -> bool:
         return self.success
 
-    class Config:
-        allow_mutation = False
 
-
-Decision.OK = Decision(success=True)
-Decision.MUTATED = Decision(success=True, mutation_applied=True)
+Decision.OK = Decision(success=True, reason="")
+Decision.NO = Decision(success=False, reason="")
+Decision.NEEDS_OPTION = Decision(success=True, needs_option=True)
+Decision.NEEDS_OPTION_FAIL = Decision(success=False, needs_option=True)
