@@ -1,3 +1,4 @@
+import io
 import json
 import pathlib
 import textwrap
@@ -135,8 +136,11 @@ def load_ruleset(
     return ruleset
 
 
-def deserialize_ruleset(json_data: str) -> base_models.BaseRuleset:
-    ruleset_dict = json.loads(json_data)
+def deserialize_ruleset(json_data: str | io.TextIOBase) -> base_models.BaseRuleset:
+    if isinstance(json_data, str):
+        ruleset_dict = json.loads(json_data)
+    else:
+        ruleset_dict = json.load(json_data)
     return _parse_ruleset_dict(ruleset_dict)
 
 
