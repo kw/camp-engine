@@ -330,6 +330,8 @@ class PropExpression(BoolExpr):
 
 
 def parse_req(req: Any) -> Requirement:
+    if isinstance(req, BoolExpr):
+        return req
     match req:
         case [*requirements]:
             return AllOf(all=[parse_req(r) for r in requirements])
