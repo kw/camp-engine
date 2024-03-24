@@ -167,7 +167,10 @@ def _parse_ruleset_dict(ruleset_dict: dict):
     ruleset_model = utils.import_name(ruleset_def)
     if not issubclass(ruleset_model, base_models.BaseRuleset):
         raise ValueError(f"{ruleset_def} does not implement BaseRuleset")
-    return pydantic.TypeAdapter(ruleset_model).validate_python(ruleset_dict)
+    ruleset = pydantic.TypeAdapter(ruleset_model).validate_python(ruleset_dict)
+    for feature in ruleset.features.values():
+        feature.post_validate(ruleset)
+    return ruleset
 
 
 def _parse_directory(
