@@ -87,12 +87,16 @@ class Always(BoolExpr):
     ) -> Decision:
         return Decision.OK
 
+    @pydantic.model_serializer
+    def serialize(self):
+        return None
+
 
 ALWAYS = Always()
 
 
 class AnyOf(BoolExpr):
-    any: list[BoolExpr]
+    any: list[Requirement]
 
     def evaluate(
         self,
@@ -119,7 +123,7 @@ class AnyOf(BoolExpr):
 
 
 class AllOf(BoolExpr):
-    all: list[BoolExpr]
+    all: list[Requirement]
 
     def evaluate(
         self,
@@ -144,7 +148,7 @@ class AllOf(BoolExpr):
 
 
 class NoneOf(BoolExpr):
-    none: list[BoolExpr]
+    none: list[Requirement]
 
     def evaluate(
         self,
@@ -317,6 +321,10 @@ class PropExpression(BoolExpr):
             req += f"<{less_than}"
         return req
 
+    @pydantic.model_serializer
+    def serialize(self) -> str:
+        return repr(self)
+
     def __repr__(self) -> str:
         return self.unparse(
             prop=self.prop,
@@ -334,13 +342,23 @@ def parse_req(req: Any) -> Requirement:
         return req
     match req:
         case [*requirements]:
-            return AllOf(all=[parse_req(r) for r in requirements])
+            return AllOf(
+                all=[RequirementAdapter.validate_python(r) for r in requirements]
+            )
         case {"all": [*requirements]}:
-            return AllOf(all=[parse_req(r) for r in requirements])
+            return AllOf(
+                all=[RequirementAdapter.validate_python(r) for r in requirements]
+            )
         case {"any": [*requirements]}:
-            return AnyOf(any=[parse_req(r) for r in requirements])
+            return AnyOf(
+                any=[RequirementAdapter.validate_python(r) for r in requirements]
+            )
         case {"none": [*requirements]}:
-            return NoneOf(none=[parse_req(r) for r in requirements])
+            return NoneOf(
+                none=[RequirementAdapter.validate_python(r) for r in requirements]
+            )
+        case {"prop": _}:
+            return PropExpression(**req)
         case str():
             if req.startswith("-"):
                 return NoneOf(none=[PropExpression.parse(req[1:])])
@@ -350,11 +368,16 @@ def parse_req(req: Any) -> Requirement:
     raise ValueError(f"Requirement parse failure for {req}")
 
 
-Requirement = Annotated[BoolExpr, pydantic.BeforeValidator(parse_req)]
+Requirement = Annotated[
+    AllOf | AnyOf | NoneOf | PropExpression | Always,
+    pydantic.BeforeValidator(parse_req),
+]
 AnyOf.model_rebuild()
 AllOf.model_rebuild()
 NoneOf.model_rebuild()
 PropExpression.model_rebuild()
+Always.model_rebuild()
+RequirementAdapter = pydantic.TypeAdapter(Requirement)
 
 
 class Table(ABC):

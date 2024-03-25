@@ -84,6 +84,7 @@ def dump_dict(
     return data.model_dump(
         by_alias=True,
         exclude_none=True,
+        round_trip=True,
         exclude_unset=exclude_unset,
         exclude_defaults=exclude_defaults,
         mode="json",
@@ -99,7 +100,9 @@ def dump_json(
 ) -> str:
     if not isinstance(data, dict):
         data = dump_dict(
-            data, exclude_unset=exclude_unset, exclude_defaults=exclude_defaults
+            data,
+            exclude_unset=exclude_unset,
+            exclude_defaults=exclude_defaults,
         )
     return json.dumps(data, *args, cls=JSONEncoder, **kwargs)
 

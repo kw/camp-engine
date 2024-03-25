@@ -84,3 +84,6 @@ def test_serialize_ruleset(path):
     reloaded_ruleset = loader.deserialize_ruleset(ruleset_json)
     assert reloaded_ruleset.features
     assert ruleset.model_dump() == reloaded_ruleset.model_dump()
+
+    for fid, defn in reloaded_ruleset.features.items():
+        assert defn.requires == ruleset.features[fid].requires
