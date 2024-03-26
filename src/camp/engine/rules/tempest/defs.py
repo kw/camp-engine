@@ -335,6 +335,10 @@ class RolePower(BaseFeatureDef):
     level: Literal["bonus", "basic", "advanced"]
     parent: str  # Parent is _required_
 
+    @classmethod
+    def default_name(cls):
+        return "Role"
+
 
 class Breed(BaseFeatureDef):
     type: Literal["breed"] = "breed"
