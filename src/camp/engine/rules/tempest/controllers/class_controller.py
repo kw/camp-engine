@@ -39,10 +39,6 @@ class ClassController(feature_controller.FeatureController):
         return self in self.character.archetype_legal_classes
 
     @property
-    def innate_powers(self) -> list[feature_controller.FeatureController]:
-        return (fc for fc in self.children if fc.definition.type == "innate")
-
-    @property
     def archetype_powers(self) -> list[feature_controller.FeatureController]:
         return (fc for fc in self.children if fc.definition.type == "archetype")
 
@@ -329,10 +325,6 @@ class ClassController(feature_controller.FeatureController):
             grants.update(self._gather_grants(self.definition.starting_features))
         else:
             grants.update(self._gather_grants(self.definition.multiclass_features))
-        # Innate features
-        for feature in self.innate_powers:
-            if feature.meets_requirements:
-                grants[feature.id] = 1
         # Archetype features
         if self.is_archetype:
             for feature in self.archetype_powers:

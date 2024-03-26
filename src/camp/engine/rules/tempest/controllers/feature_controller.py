@@ -31,6 +31,7 @@ _SUBFEATURE_TYPES: set[str] = {
     "breedchallenge",
     "breedadvantage",
     "breedtrait",
+    "rolepower",
 }
 _OPTION_BONUS = "__option__"
 
@@ -79,6 +80,10 @@ class FeatureController(base_engine.BaseFeatureController):
             for fc in self.children
             if fc.feature_type in _SUBFEATURE_TYPES and fc.can_increase()
         ]
+
+    @property
+    def innate_powers(self) -> list[FeatureController]:
+        return (fc for fc in self.children if fc.definition.type == "innate")
 
     @property
     def internal(self) -> bool:
@@ -796,6 +801,12 @@ class FeatureController(base_engine.BaseFeatureController):
             for grant, requires in self.definition.grant_if.items():
                 if self.character.meets_requirements(requires, self.full_id):
                     grants.update(self._gather_grants(grant))
+
+        # Innate features
+        for feature in self.innate_powers:
+            if feature.meets_requirements:
+                grants[feature.id] = 1
+
         # Subclasses might have other grants that the produce. Add them in.
         grants.update(self.extra_grants())
 

@@ -157,6 +157,7 @@ class ChildPurchaseDef(base_models.BaseModel):
 
 class BaseFeatureDef(base_models.BaseFeatureDef, PowerCard):
     cost: CostDef = None
+    sp_cost: int | None = None
     grants: Grantable | None = None
     grant_if: dict[str, base_models.Requirement] | None = None
     rank_grants: dict[int, Grantable] | None = Field(default=None, alias="level_grants")
@@ -324,6 +325,17 @@ class DevotionPower(BaseFeatureDef):
     parent: str  # Parent is _required_
 
 
+class Role(BaseFeatureDef):
+    type: Literal["role"] = "role"
+
+
+class RolePower(BaseFeatureDef):
+    type: Literal["rolepower"] = "rolepower"
+    cost: CostDef
+    level: Literal["bonus", "basic", "advanced"]
+    parent: str  # Parent is _required_
+
+
 class Breed(BaseFeatureDef):
     type: Literal["breed"] = "breed"
 
@@ -406,6 +418,8 @@ FeatureDefinitions: TypeAlias = (
     | Culture
     | Religion
     | DevotionPower
+    | Role
+    | RolePower
     | Breed
     | Subbreed
     | BreedChallenge

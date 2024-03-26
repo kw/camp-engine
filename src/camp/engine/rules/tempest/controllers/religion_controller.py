@@ -17,11 +17,17 @@ class ReligionController(feature_controller.FeatureController):
         return Decision.OK
 
     def level_label(self) -> str:
-        devs = self.devotions()
-        if all(d.value > 0 for d in devs):
+        powers = [
+            p
+            for p in self.children
+            if isinstance(p, DevotionController) and p.level_value > 0
+        ]
+        powers.sort(key=lambda p: p.level_value)
+        taken = [p for p in powers if p.value > 0]
+        if len(powers) == len(taken):
             return "MAX"
-        if devs:
-            match devs[-1].level_value:
+        if taken:
+            match taken[-1].level_value:
                 case 2:
                     return "Advanced"
                 case 1:

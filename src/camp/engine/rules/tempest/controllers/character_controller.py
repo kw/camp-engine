@@ -25,6 +25,7 @@ from . import feature_controller
 from . import flaw_controller
 from . import power_controller
 from . import religion_controller
+from . import role_controller
 from . import spell_controller
 from . import spellbook_controller
 from . import subfeature_controller
@@ -500,6 +501,10 @@ class TempestCharacter(base_engine.CharacterController):
                 return breed_controller.BreedAdvantageController(id, self)
             case "breedchallenge":
                 return breed_controller.BreedChallengeController(id, self)
+            case "role":
+                return role_controller.RoleController(id, self)
+            case "rolepower":
+                return role_controller.RolePowerController(id, self)
             case _:
                 return feature_controller.FeatureController(id, self)
 
