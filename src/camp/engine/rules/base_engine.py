@@ -286,7 +286,7 @@ class CharacterController(ABC):
                 # Scoped attributes are never stored on the character controller.
                 pass
             else:
-                controller = self._make_attribute_controller(expr)
+                controller = self._make_attribute_controller(expr, attr)
 
         if controller:
             self._attribute_controllers[expr.full_id] = controller
@@ -294,9 +294,11 @@ class CharacterController(ABC):
         raise ValueError(f"Attribute {expr.full_id} not found.")
 
     def _make_attribute_controller(
-        self, expr: base_models.PropExpression
+        self,
+        expr: base_models.PropExpression,
+        attr: base_models.Attribute,
     ) -> AttributeController | None:
-        attr_value = getattr(self, expr.prop, None)
+        attr_value = getattr(self, attr.property_id, None)
         if attr_value is not None:
             if isinstance(attr_value, AttributeController):
                 return attr_value
