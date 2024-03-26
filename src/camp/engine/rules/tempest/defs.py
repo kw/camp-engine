@@ -579,7 +579,12 @@ class Ruleset(base_models.BaseRuleset):
         ),
         Attribute(
             id="basic-classes",
-            name="Basic Classes",
+            name="Base Classes",
+            hidden=True,
+        ),
+        Attribute(
+            id="advanced-classes",
+            name="Advanced Classes",
             hidden=True,
         ),
         Attribute(
@@ -601,10 +606,21 @@ class Ruleset(base_models.BaseRuleset):
             scoped=True,
         ),
         Attribute(
+            id="veteran",
+            name="Veteran",
+            hidden=True,
+            scoped=True,
+        ),
+        Attribute(
             id="devotion",
             name="Devotion Powers",
             hidden=True,
             scoped=False,
+        ),
+        Attribute(
+            id="flag",
+            name="Flag",
+            hidden=True,
         ),
     ]
 

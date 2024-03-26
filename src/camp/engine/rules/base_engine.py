@@ -280,23 +280,29 @@ class CharacterController(ABC):
         if controller := self._attribute_controllers.get(expr.full_id):
             return controller
 
-        attr = self.engine.attribute_map.get(expr.prop)
-        if attr is not None:
+        if attr := self.engine.attribute_map.get(expr.prop):
             # There are a few different ways an attribute might be stored or computed.
             if attr.scoped:
                 # Scoped attributes are never stored on the character controller.
                 pass
             else:
-                attr_value = getattr(self, attr.property_id, None)
-                if attr_value is not None:
-                    if isinstance(attr_value, AttributeController):
-                        controller = attr_value
-                    else:
-                        controller = SimpleAttributeWrapper(expr.full_id, self)
+                controller = self._make_attribute_controller(expr)
+
         if controller:
             self._attribute_controllers[expr.full_id] = controller
             return controller
         raise ValueError(f"Attribute {expr.full_id} not found.")
+
+    def _make_attribute_controller(
+        self, expr: base_models.PropExpression
+    ) -> AttributeController | None:
+        attr_value = getattr(self, expr.prop, None)
+        if attr_value is not None:
+            if isinstance(attr_value, AttributeController):
+                return attr_value
+            else:
+                return SimpleAttributeWrapper(expr.full_id, self)
+        return None
 
     def get(self, expr: str | base_models.PropExpression) -> int:
         """Retrieve the value of an arbitrary property (feature, attribute, etc).
@@ -520,6 +526,8 @@ class PropertyController(ABC):
         self.character = character
 
     def display_name(self) -> str:
+        if self.hidden:
+            return "???"
         name = self.character.display_name(self.expression.prop)
         if self.option:
             name += f" [{self.option}]"
@@ -545,6 +553,10 @@ class PropertyController(ABC):
     @property
     def max_value(self) -> int:
         return self.value
+
+    @property
+    def hidden(self) -> bool:
+        return False
 
     def get(self, expr: str | base_models.PropExpression) -> int:
         expr = base_models.PropExpression.parse(expr)
@@ -744,12 +756,16 @@ class BaseFeatureController(PropertyController):
 
     @property
     def description(self) -> str | None:
+        if self.hidden:
+            return "???"
         if self.option and (descr := self.option_description(self.option)):
             return f"""{self.definition.description}\n\n## {self.option}\n\n{descr}"""
         return self.definition.description
 
     @property
     def short_description(self) -> str | None:
+        if self.hidden:
+            return "???"
         if self.definition.short_description:
             return self.definition.short_description
         if self.description:
@@ -760,12 +776,16 @@ class BaseFeatureController(PropertyController):
         return None
 
     def option_description(self, option: str) -> str | None:
+        if self.hidden:
+            return "???"
         if option_def := self.option_def:
             if descriptions := option_def.descriptions:
                 return descriptions.get(option)
         return None
 
     def describe_option(self, option: str) -> str:
+        if self.hidden:
+            return "???"
         if descr := self.option_description(option):
             return f"{option}: {descr}"
         return option
@@ -783,6 +803,8 @@ class BaseFeatureController(PropertyController):
 
     @property
     def type_name(self) -> str:
+        if self.hidden:
+            return "???"
         return self.character.display_name(self.feature_type)
 
     @property
@@ -831,6 +853,8 @@ class BaseFeatureController(PropertyController):
 
     @property
     def category(self) -> str | None:
+        if self.hidden:
+            return "???"
         return self.definition.category
 
     @property

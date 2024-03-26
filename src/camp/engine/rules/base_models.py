@@ -466,6 +466,8 @@ class BaseFeatureDef(BaseModel):
             to specify the type literally, which can aid the parser in identifying
             what model to use. Ex:
                 type: Literal['subtypetag'] = 'subtypetag'
+        hidden: If True, this feature will not findable or viewable in any context, unless
+            the active character has it or qualifies for it.
         requires: Requirements that must be met for the feature to be added. Note that
             requirements are interpreted as "always on" - should the character stop
             meeting the requirement, the character will no longer signal as valid.
@@ -488,6 +490,7 @@ class BaseFeatureDef(BaseModel):
     id: str
     name: str
     type: str
+    hidden: bool = False
     parent: str | None = None
     supersedes: str | None = None
     category: str | None = None

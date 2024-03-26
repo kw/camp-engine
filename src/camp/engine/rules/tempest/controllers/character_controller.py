@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import cached_property
+from typing import override
 
 from camp.engine.rules import base_engine
 from camp.engine.rules.base_models import ChoiceMutation
@@ -561,6 +562,14 @@ class TempestCharacter(base_engine.CharacterController):
             )
 
         return issues
+
+    @override
+    def _make_attribute_controller(
+        self, expr: PropExpression
+    ) -> attribute_controllers.AttributeController:
+        if expr.prop == "flag":
+            return attribute_controllers.FlagController(expr.full_id, self)
+        return super()._make_attribute_controller(expr)
 
     def clear_caches(self):
         super().clear_caches()

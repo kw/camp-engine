@@ -18,6 +18,8 @@ class ReligionController(feature_controller.FeatureController):
 
     def level_label(self) -> str:
         devs = self.devotions()
+        if all(d.value > 0 for d in devs):
+            return "MAX"
         if devs:
             match devs[-1].level_value:
                 case 2:

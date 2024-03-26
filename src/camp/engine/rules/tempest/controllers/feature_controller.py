@@ -84,6 +84,10 @@ class FeatureController(base_engine.BaseFeatureController):
     def internal(self) -> bool:
         return self.feature_type in _SUBFEATURE_TYPES
 
+    @cached_property
+    def hidden(self) -> bool:
+        return self.definition.hidden and not self.meets_requirements
+
     @property
     def parent(self) -> FeatureController | None:
         parent = super().parent
@@ -130,6 +134,8 @@ class FeatureController(base_engine.BaseFeatureController):
         return self.cost_for(self.paid_ranks, self.bonus)
 
     def cost_string(self, include_grants: bool = True) -> str | None:
+        if self.hidden:
+            return "?"
         if not self.value or self.is_option_template:
             return self.purchase_cost_string()
         # Things that cost (or grant) currency should show a cost.
@@ -161,6 +167,8 @@ class FeatureController(base_engine.BaseFeatureController):
     def name_with_tags(
         self, exclude_tags: set[str] | None = None, include_cost: bool = False
     ) -> str:
+        if self.hidden:
+            return "???"
         name = self.display_name()
         if tags := self.render_tags(exclude_tags=exclude_tags):
             name = f"{name} {tags}"
@@ -184,6 +192,8 @@ class FeatureController(base_engine.BaseFeatureController):
         return f"{self.max_ranks}"
 
     def power_card(self) -> defs.PowerCard | None:
+        if self.hidden:
+            return None
         return self.definition.model_copy(
             update={
                 "name": self.name_with_tags(include_cost=True),
@@ -206,6 +216,8 @@ class FeatureController(base_engine.BaseFeatureController):
         return " ".join(out)
 
     def sub_cards(self) -> list[defs.PowerCard]:
+        if self.hidden:
+            return []
         if isinstance(self.definition.subcard, list):
             return list(self.definition.subcard)
         elif self.definition.subcard:
@@ -233,6 +245,8 @@ class FeatureController(base_engine.BaseFeatureController):
         cost: int | None = None,
         grants: int | None = None,
     ) -> str | None:
+        if self.hidden:
+            return "?"
         if self.currency and (self.cost_def is not None or cost is not None):
             if cost is None:
                 if self.is_option_template:
@@ -280,6 +294,8 @@ class FeatureController(base_engine.BaseFeatureController):
     @property
     def explain(self) -> list[str]:
         """Returns a list of strings explaining details of the feature."""
+        if self.hidden:
+            return ["It's a secret."]
         if self.model.plot_suppressed:
             return ["This feature was suppressed by a plot member."]
 

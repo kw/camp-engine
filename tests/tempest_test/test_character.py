@@ -54,3 +54,27 @@ def test_attribute_cache_uses_full_id(character: TempestCharacter):
     assert character.apply("cleric:2")
     assert character.get("spell@2") == 0
     assert character.get("spell@1") > 0
+
+
+def test_secret_perk_not_available_without_flag(character: TempestCharacter):
+    perks = {
+        f.id for f in character.list_features(type="perk", taken=False, available=True)
+    }
+    assert "secret-perk" not in perks
+
+    controller = character.feature_controller("secret-perk")
+    assert controller.hidden
+
+
+def test_secret_perk_availabile_with_flag(character: TempestCharacter):
+    character.model.metadata = character.model.metadata.model_copy(
+        update={"flags": {"secret": 1}}
+    )
+
+    perks = {
+        f.id for f in character.list_features(type="perk", taken=False, available=True)
+    }
+    assert "secret-perk" in perks
+
+    controller = character.feature_controller("secret-perk")
+    assert not controller.hidden

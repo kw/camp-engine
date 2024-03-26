@@ -188,3 +188,16 @@ class BreedPointController(AttributeController):
     @property
     def value(self) -> int:
         return self.awarded_bp - self.advantage_cost_bp
+
+
+class FlagController(AttributeController):
+    character: base_engine.CharacterController
+
+    @property
+    def value(self) -> int:
+        if option := self.option:
+            v = self.character.model.metadata.flags.get(option, None)
+            if isinstance(v, (int, float)):
+                return int(v)
+            return bool(v)
+        return 0
