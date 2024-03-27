@@ -716,7 +716,7 @@ class BaseFeatureController(PropertyController):
             if fc.is_option_template:
                 children.extend(fc.option_controllers().values())
 
-        children.sort(key=lambda f: f.display_name())
+        children.sort(key=lambda f: f.definition.name)
         children.sort(key=lambda f: self.character.display_priority(f.feature_type))
         return children
 
