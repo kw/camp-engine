@@ -336,7 +336,7 @@ class RolePower(BaseFeatureDef):
     parent: str  # Parent is _required_
 
     @classmethod
-    def default_name(cls):
+    def default_name(cls) -> str:
         return "Role"
 
 
@@ -407,6 +407,26 @@ class BreedAdvantage(BaseFeatureDef):
             )
 
 
+class LostArt(BaseFeatureDef):
+    type: Literal["lostart"] = "lostart"
+    cost: CostDef
+    hidden: bool = True
+
+    @classmethod
+    def default_name(cls) -> str:
+        return "Lost Art"
+
+
+class MisplacedArt(BaseFeatureDef):
+    type: Literal["misplacedart"] = "misplacedart"
+    cost: CostDef
+    hidden: bool = True
+
+    @classmethod
+    def default_name(cls) -> str:
+        return "Misplaced Art"
+
+
 FeatureDefinitions: TypeAlias = (
     ClassDef
     | SubFeatureDef
@@ -428,6 +448,8 @@ FeatureDefinitions: TypeAlias = (
     | Subbreed
     | BreedChallenge
     | BreedAdvantage
+    | LostArt
+    | MisplacedArt
 )
 
 

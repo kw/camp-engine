@@ -505,6 +505,10 @@ class TempestCharacter(base_engine.CharacterController):
                 return role_controller.RoleController(id, self)
             case "rolepower":
                 return role_controller.RolePowerController(id, self)
+            case "lostart":
+                return feature_controller.LostArt(id, self)
+            case "misplacedart":
+                return feature_controller.MisplacedArt(id, self)
             case _:
                 return feature_controller.FeatureController(id, self)
 

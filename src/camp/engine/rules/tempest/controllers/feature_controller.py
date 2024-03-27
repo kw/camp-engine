@@ -6,6 +6,7 @@ from functools import cached_property
 from typing import Iterable
 from typing import Type
 from typing import cast
+from typing import override
 
 from camp.engine import utils
 from camp.engine.rules import base_engine
@@ -1050,6 +1051,24 @@ class SkillController(FeatureController):
 
 class PerkController(FeatureController):
     definition: defs.PerkDef
+    currency: str = "cp"
+
+
+class LostArt(FeatureController):
+    definition: defs.LostArt
+    currency: str = "cp"
+
+    @override
+    @property
+    def meets_requirements(self) -> Decision:
+        flag = f"flag+{self.definition.id}"
+        if not self.character.meets_requirements(flag):
+            return Decision.NO
+        return super().meets_requirements
+
+
+class MisplacedArt(FeatureController):
+    definition: defs.MisplacedArt
     currency: str = "cp"
 
 
