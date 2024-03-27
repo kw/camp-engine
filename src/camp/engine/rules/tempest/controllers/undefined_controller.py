@@ -34,6 +34,7 @@ class UndefinedFeatureController(feature_controller.FeatureController):
     choice_defs: None = None
     supports_child_purchases: bool = False
     child_purchase_limit: None = None
+    hidden: bool = False
 
     @classmethod
     def _definition_type(cls) -> Type[defs.BaseFeatureDef]:
