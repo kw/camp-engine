@@ -1058,7 +1058,7 @@ class LostArt(FeatureController):
     definition: defs.LostArt
     currency: str = "cp"
 
-    explain_list = ["It's a secret to everyone."]
+    explain_category_group = "It's a secret to everyone."
 
     @override
     @property
@@ -1073,7 +1073,9 @@ class MisplacedArt(FeatureController):
     definition: defs.MisplacedArt
     currency: str = "cp"
 
-    explain_list = ["Through perseverance or luck, you've stumbled across something..."]
+    explain_category_group = (
+        "Through perseverance or luck, you've stumbled across something..."
+    )
 
 
 class PlotController(FeatureController):
