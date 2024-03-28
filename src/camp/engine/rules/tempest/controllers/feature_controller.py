@@ -1074,7 +1074,9 @@ class MisplacedArt(FeatureController):
     currency: str = "cp"
 
     explain_category_group = (
-        "Through perseverance or luck, you've stumbled across something..."
+        "These Arts are not Lost, but merely... misplaced. They are not in the "
+        "public rules, but if you see one here, it means you have qualified for it. "
+        "Now, let's just keep this between us, eh?"
     )
 
 
