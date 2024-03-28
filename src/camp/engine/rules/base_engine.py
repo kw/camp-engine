@@ -765,6 +765,12 @@ class BaseFeatureController(PropertyController):
         return self.definition.description
 
     @property
+    def requires_description(self) -> str | None:
+        if self.hidden:
+            return None
+        return self.definition.requires_description
+
+    @property
     def short_description(self) -> str | None:
         if self.hidden:
             return "???"

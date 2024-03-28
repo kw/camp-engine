@@ -497,6 +497,7 @@ class BaseFeatureDef(BaseModel):
     category_priority: float = 100.0
     requires: Requirement = ALWAYS
     soft_requires: Requirement = ALWAYS
+    requires_description: str | None = None
     def_path: str | None = None
     tags: set[str] = pydantic.Field(default_factory=set)
     description: str | None = None
