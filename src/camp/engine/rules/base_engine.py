@@ -528,7 +528,7 @@ class PropertyController(ABC):
         self.character = character
 
     def display_name(self) -> str:
-        if self.hidden:
+        if not self.should_render:
             return "???"
         name = self.character.display_name(self.expression.prop)
         if self.option:
@@ -559,6 +559,10 @@ class PropertyController(ABC):
     @property
     def hidden(self) -> bool:
         return False
+
+    @property
+    def should_render(self) -> bool:
+        return not self.hidden or self.value
 
     @property
     def flags(self) -> base_models.BoolExpr:
@@ -762,7 +766,7 @@ class BaseFeatureController(PropertyController):
 
     @property
     def description(self) -> str | None:
-        if self.hidden:
+        if not self.should_render:
             return "???"
         if self.option and (descr := self.option_description(self.option)):
             return f"""{self.definition.description}\n\n## {self.option}\n\n{descr}"""
@@ -770,13 +774,13 @@ class BaseFeatureController(PropertyController):
 
     @property
     def requires_description(self) -> str | None:
-        if self.hidden:
+        if not self.should_render:
             return None
         return self.definition.requires_description
 
     @property
     def short_description(self) -> str | None:
-        if self.hidden:
+        if not self.should_render:
             return "???"
         if self.definition.short_description:
             return self.definition.short_description
@@ -788,7 +792,7 @@ class BaseFeatureController(PropertyController):
         return None
 
     def option_description(self, option: str) -> str | None:
-        if self.hidden:
+        if not self.should_render:
             return "???"
         if option_def := self.option_def:
             if descriptions := option_def.descriptions:
@@ -796,7 +800,7 @@ class BaseFeatureController(PropertyController):
         return None
 
     def describe_option(self, option: str) -> str:
-        if self.hidden:
+        if not self.should_render:
             return "???"
         if descr := self.option_description(option):
             return f"{option}: {descr}"
@@ -815,7 +819,7 @@ class BaseFeatureController(PropertyController):
 
     @property
     def type_name(self) -> str:
-        if self.hidden:
+        if not self.should_render:
             return "???"
         return self.character.display_name(self.feature_type)
 
@@ -865,7 +869,7 @@ class BaseFeatureController(PropertyController):
 
     @property
     def category(self) -> str | None:
-        if self.hidden:
+        if not self.should_render:
             return "???"
         return self.definition.category
 

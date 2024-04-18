@@ -102,10 +102,6 @@ class FeatureController(base_engine.BaseFeatureController):
         return False
 
     @property
-    def should_render(self) -> bool:
-        return not self.hidden or self.value
-
-    @property
     def flags_fulfilled(self) -> bool:
         return self.character.meets_requirements(self.definition.flags).success
 
@@ -121,6 +117,12 @@ class FeatureController(base_engine.BaseFeatureController):
                     parent = controller
                     break
         return cast(FeatureController | None, parent)
+
+    @override
+    def display_name(self) -> str:
+        if not self.should_render:
+            return "???"
+        return super().display_name()
 
     @property
     def formal_name(self) -> str:
