@@ -10,6 +10,7 @@ from typing import override
 
 from camp.engine import utils
 from camp.engine.rules import base_engine
+from camp.engine.rules.base_models import Always
 from camp.engine.rules.base_models import Discount
 from camp.engine.rules.base_models import Issue
 from camp.engine.rules.base_models import PropExpression
@@ -90,9 +91,19 @@ class FeatureController(base_engine.BaseFeatureController):
     def internal(self) -> bool:
         return self.feature_type in _SUBFEATURE_TYPES
 
-    @cached_property
+    @property
     def hidden(self) -> bool:
-        return self.definition.hidden and not self.meets_requirements
+        if not self.definition.hidden:
+            return False
+        if not self.flags_fulfilled:
+            return True
+        if not self.meets_requirements:
+            return True
+        return False
+
+    @property
+    def flags_fulfilled(self) -> bool:
+        return self.character.meets_requirements(self.definition.flags).success
 
     @property
     def parent(self) -> FeatureController | None:
@@ -583,6 +594,8 @@ class FeatureController(base_engine.BaseFeatureController):
     def can_increase(self, value: int = 1) -> Decision:
         if value <= 0:
             return _MUST_BE_POSITIVE
+        if self.hidden:
+            return _NO_PURCHASE
         purchaseable = self.purchaseable_ranks
         current = self.value
         if purchaseable <= 0:
@@ -1062,11 +1075,12 @@ class LostArt(FeatureController):
 
     @override
     @property
-    def meets_requirements(self) -> Decision:
+    def flags_fulfilled(self) -> bool:
+        """All Lost Arts get a flag based on their ID unless otherwise defined."""
+        if not isinstance(self.definition.flags, Always):
+            return super().flags_fulfilled
         flag = f"flag+{self.definition.id}"
-        if not self.character.meets_requirements(flag):
-            return Decision.NO
-        return super().meets_requirements
+        return self.character.meets_requirements(flag).success
 
 
 class MisplacedArt(FeatureController):

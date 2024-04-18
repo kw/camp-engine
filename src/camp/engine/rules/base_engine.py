@@ -560,6 +560,10 @@ class PropertyController(ABC):
     def hidden(self) -> bool:
         return False
 
+    @property
+    def flags(self) -> base_models.BoolExpr:
+        return base_models.ALWAYS
+
     def get(self, expr: str | base_models.PropExpression) -> int:
         expr = base_models.PropExpression.parse(expr)
         prefix, expr = expr.pop()
