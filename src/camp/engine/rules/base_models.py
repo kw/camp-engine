@@ -949,6 +949,10 @@ class PlotMutation(pydantic.BaseModel):
     player_note: str | None = None
 
 
+class RespendMutation(pydantic.BaseModel):
+    type: Literal["respend"] = "respend"
+
+
 class Discount(BaseModel):
     """Describes a cost discount.
 
@@ -969,7 +973,7 @@ class Discount(BaseModel):
         return discount
 
 
-Mutation = RankMutation | ChoiceMutation | NoteMutation | PlotMutation
+Mutation = RankMutation | ChoiceMutation | NoteMutation | PlotMutation | RespendMutation
 MutationAdapter = pydantic.TypeAdapter(Mutation)
 
 

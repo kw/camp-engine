@@ -168,6 +168,8 @@ class CharacterController(ABC):
                     rd = self.purchase(mutation)
                 case base_models.ChoiceMutation():
                     rd = self.choose(mutation)
+                case base_models.RespendMutation():
+                    rd = self.respend(mutation)
                 case _:
                     rd = Decision(
                         success=False, reason=f"Mutation {mutation} unsupported."
@@ -351,6 +353,9 @@ class CharacterController(ABC):
 
     @abstractmethod
     def choose(self, entry: base_models.ChoiceMutation) -> Decision: ...
+
+    @abstractmethod
+    def respend(self, entry: base_models.RespendMutation) -> Decision: ...
 
     def meets_requirements(
         self,

@@ -10,6 +10,7 @@ from camp.engine.rules.base_models import ChoiceMutation
 from camp.engine.rules.base_models import Issue
 from camp.engine.rules.base_models import PropExpression
 from camp.engine.rules.base_models import RankMutation
+from camp.engine.rules.base_models import RespendMutation
 from camp.engine.rules.decision import Decision
 
 from .. import defs
@@ -361,6 +362,15 @@ class TempestCharacter(base_engine.CharacterController):
                 return controller.unchoose(entry.choice, entry.value)
             return controller.choose(entry.choice, entry.value)
         return Decision(success=False, reason=f"Unknown feature {entry.id}")
+
+    def respend(self, entry: RespendMutation) -> Decision:
+        # TODO: Support more incremental respend operations
+        if self.can_respend:
+            self.model.features = {}
+            self.clear_caches()
+            self.reconcile()
+            return Decision.OK
+        return Decision(success=False, reason="Can't respend at this time.")
 
     def has_prop(self, expr: str | PropExpression) -> bool:
         """Check whether the character has _any_ property (feature, attribute, etc) with the given name.

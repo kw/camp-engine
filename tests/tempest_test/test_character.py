@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from camp.engine.rules.base_models import RespendMutation
 from camp.engine.rules.tempest.controllers.character_controller import TempestCharacter
 from camp.engine.rules.tempest.engine import TempestEngine
 
@@ -78,3 +79,13 @@ def test_secret_perk_availabile_with_flag(character: TempestCharacter):
 
     controller = character.feature_controller("secret-perk")
     assert not controller.hidden
+
+
+def test_apply_respend(character: TempestCharacter):
+    character.xp_level = 6
+    assert character.apply("fighter:6")
+    assert character.apply("basic-skill")
+    assert character.model.features
+
+    assert character.apply(RespendMutation())
+    assert not character.model.features
