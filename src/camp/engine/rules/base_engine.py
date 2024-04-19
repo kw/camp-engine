@@ -510,6 +510,8 @@ class CharacterController(ABC):
                 if mutation.remove:
                     return f"Unchose '{selection}' for choice {choice_name} of {feature.display_name()}"
                 return f"Chose '{selection}' for choice {choice_name} of {feature.display_name()}"
+            case base_models.RespendMutation():
+                return "Full Character Respend"
             case _:
                 return repr(mutation)
 
