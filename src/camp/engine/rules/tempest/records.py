@@ -480,15 +480,11 @@ class PlayerRecord(BaseModel, frozen=True):
 
     @model_validator(mode="after")
     def validate_character_records(self):
-        """A character record exists for every character mentioned in an award."""
+        """A character is mentioned for every award that needs one."""
         for a in self.awards or []:
-            if (
-                a.needs_character
-                and a.character is not None
-                and a.character not in self.characters
-            ):
+            if a.needs_character and a.character is None:
                 raise ValueError(
-                    f"Character record for {a.character} not properly initialized."
+                    f"Award record not properly initialized (needs a character): {a}"
                 )
         return self
 
