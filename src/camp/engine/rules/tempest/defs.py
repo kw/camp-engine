@@ -136,6 +136,7 @@ class PowerCard(base_models.BaseModel):
     refresh: str | None = None
     effect: str | None = None
     description: str | None = None
+    requires_description: str | None = None
 
     def should_format_as_card(self) -> bool:
         return bool(

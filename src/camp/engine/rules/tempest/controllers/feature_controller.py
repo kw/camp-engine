@@ -223,6 +223,7 @@ class FeatureController(base_engine.BaseFeatureController):
             update={
                 "name": self.name_with_tags(include_cost=True),
                 "description": self.description,
+                "requires_description": self.requires_description,
             },
         )
 
