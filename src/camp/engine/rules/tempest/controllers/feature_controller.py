@@ -23,6 +23,8 @@ from . import choice_controller
 _MUST_BE_POSITIVE = Decision(success=False, reason="Value must be positive.")
 _NO_RESPEND = Decision(success=False, reason="Respend not currently available.")
 _NO_PURCHASE = Decision(success=False, reason="")
+_NO_FLAG = Decision(success=False, reason="Plot approval is required.")
+
 
 _SUBFEATURE_TYPES: set[str] = {
     "subfeature",
@@ -602,6 +604,8 @@ class FeatureController(base_engine.BaseFeatureController):
             return _MUST_BE_POSITIVE
         if self.hidden:
             return _NO_PURCHASE
+        if not self.flags_fulfilled and not self.character.is_freeplay:
+            return _NO_FLAG
         purchaseable = self.purchaseable_ranks
         current = self.value
         if purchaseable <= 0:

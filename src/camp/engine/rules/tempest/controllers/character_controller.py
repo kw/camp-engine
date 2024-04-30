@@ -172,6 +172,10 @@ class TempestCharacter(base_engine.CharacterController):
         return None
 
     @property
+    def is_freeplay(self) -> bool:
+        return bool(self.flags.get("freeplay"))
+
+    @property
     def basic_classes(self) -> int:
         return sum(1 for c in self.classes if c.class_type == "basic")
 
