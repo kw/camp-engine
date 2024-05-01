@@ -700,6 +700,8 @@ class FeatureController(base_engine.BaseFeatureController):
     def can_afford(self, value: int = 1) -> Decision:
         available = self._currency_balance()
         if available is None:
+            if self.purchase_limit_applies:
+                return Decision.OK
             return _NO_PURCHASE
         grants = 0 if self.is_option_template else self.bonus
         currency_delta = self.cost_for(self.paid_ranks + value, grants) - max(
