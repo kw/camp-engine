@@ -1,7 +1,7 @@
 [project]
 name = 'camp-engine'
 version = '0.0.1'
-authors = [{ name = "Ken Moriarty", email = "kwatford@gmail.com" }]
+authors = [{ name = "Ken Moriarty", email = "ken@kmoriarty.dev" }]
 description = "Rules engines for the Camp app"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -19,7 +19,7 @@ force_single_line = true
 name = "camp-engine"
 version = "0.1.0"
 description = ""
-authors = ["Ken Moriarty <kwatford@gmail.com>"]
+authors = ["Ken Moriarty <ken@kmoriarty.dev>"]
 readme = "README.md"
 packages = [{ include = "camp", from = "src" }]
 

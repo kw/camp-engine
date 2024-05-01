@@ -588,7 +588,7 @@ class FeatureController(base_engine.BaseFeatureController):
 
     @property
     def child_purchase_count(self) -> int:
-        return sum(c.purchased_ranks for c in self.children)
+        return sum(c.purchased_ranks for c in self.children if c.purchase_limit_applies)
 
     @property
     def child_purchase_remaining(self) -> int | None:
@@ -599,6 +599,10 @@ class FeatureController(base_engine.BaseFeatureController):
     @property
     def child_purchase_budget(self) -> int | None:
         return None
+
+    @property
+    def purchase_limit_applies(self) -> bool:
+        return self.definition.use_purchase_limit
 
     def can_increase(self, value: int = 1) -> Decision:
         if value <= 0:
@@ -612,7 +616,11 @@ class FeatureController(base_engine.BaseFeatureController):
         if purchaseable <= 0:
             return Decision.NO
         # If the parent feature has purchase limits for children, enforce it.
-        if self.parent and self.parent.supports_child_purchases:
+        if (
+            self.purchase_limit_applies
+            and self.parent
+            and self.parent.supports_child_purchases
+        ):
             if (remaining := self.parent.child_purchase_remaining) is not None:
                 if remaining < value:
                     return Decision(
