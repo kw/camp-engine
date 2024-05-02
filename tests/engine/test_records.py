@@ -92,7 +92,7 @@ AWARDS_DAYGAMER = [
 
 # Unmark the "event played" flag to indicate this was an NPC award.
 AWARDS_NPC = [
-    award.model_copy(update={"event_played": False, "event_staffed": True})
+    award.model_copy(update={"event_played": False, "event_staffed": True, "sp": 25})
     for award in AWARDS_SINGLE_ALL
 ]
 
@@ -105,6 +105,7 @@ def test_no_awards():
     """If you didn't get any awards, that's ok."""
     updated = PLAYER.update(CAMPAIGN)
     assert updated.xp == CAMPAIGN.floor_xp
+    assert updated.sp == 0
     assert updated.events_played == 0
     assert updated.events_staffed == 0
     assert updated.last_played is None
@@ -147,6 +148,7 @@ def test_awards_single_all():
     """What a dedicated player! They get all the things."""
     updated = PLAYER.update(CAMPAIGN, AWARDS_SINGLE_ALL)
     assert updated.xp == CAMPAIGN.max_xp == 68
+    assert updated.sp == 0
     assert updated.events_played == len(AWARDS_SINGLE_ALL)
     assert updated.last_played == date(2023, 10, 29)
 
@@ -532,6 +534,7 @@ def test_awards_not_played():
     """The player only NPC'd, so their events played counter didn't tick up."""
     updated = PLAYER.update(CAMPAIGN, AWARDS_NPC)
     assert updated.xp == CAMPAIGN.max_xp == 68
+    assert updated.sp == 12 * 25
     assert updated.events_played == 0
     assert updated.events_staffed == 12
     assert updated.last_played is None

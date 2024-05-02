@@ -104,10 +104,9 @@ class AwardRecord(BaseModel, frozen=True):
     player_flags: dict[str, FlagValues | None] | None = None
     character_flags: dict[str, FlagValues | None] | None = None
     character_grants: list[str] | None = None
+    sp: int = 0
 
     def describe(self, secrets=False) -> str:
-        if self.description:
-            return self.description
         parts = []
         if self.backstory_approved:
             parts.append("Backstory Approval")
@@ -115,29 +114,40 @@ class AwardRecord(BaseModel, frozen=True):
             parts.append(f"Bonus CP: {self.bonus_cp}")
         if self.event_xp or self.event_cp:
             parts.append(f"Event: {self.event_xp} XP + {self.event_cp} CP")
-        if self.character_flags or self.player_flags or self.character_grants:
-            if not secrets:
-                parts.append("Secret Flags")
-            else:
-                if self.player_flags:
-                    pflags = []
-                    for flag, value in self.player_flags.items():
-                        pflags.append(f"{flag}:{value!r}")
-                    parts.append(f"Player Flags: [{'; '.join(pflags)}]")
-                if self.character_flags:
-                    pflags = []
-                    for flag, value in self.character_flags.items():
-                        pflags.append(f"{flag}:{value!r}")
-                    parts.append(f"Character Flags: [{'; '.join(pflags)}]")
-                if self.character_grants:
-                    parts.append(f"Grants: [{'; '.join(self.character_grants)}]")
-        if parts:
+        if self.sp > 0:
+            parts.append(f"SP Gained: +{self.sp}")
+        elif self.sp < 0:
+            parts.append(f"SP Spent: {-self.sp}")
+
+        if secrets and (
+            self.character_flags
+            or self.player_flags
+            or self.character_grants
+            or self.sp_purchases
+        ):
+            if self.player_flags:
+                pflags = []
+                for flag, value in self.player_flags.items():
+                    pflags.append(f"{flag}:{value!r}")
+                parts.append(f"Player Flags: [{'; '.join(pflags)}]")
+            if self.character_flags:
+                pflags = []
+                for flag, value in self.character_flags.items():
+                    pflags.append(f"{flag}:{value!r}")
+                parts.append(f"Character Flags: [{'; '.join(pflags)}]")
+            if self.character_grants:
+                parts.append(f"Grants: [{'; '.join(self.character_grants)}]")
+        if self.description and parts:
+            return f"{self.description}: {", ".join(parts)}"
+        elif self.description:
+            return self.description
+        elif parts:
             return ", ".join(parts)
-        return "Unknown"
+        return "???"
 
     @property
     def needs_character(self) -> bool:
-        """True if a player or logistics needs to associated a character with this record."""
+        """True if a player or logistics needs to associate a character with this record."""
         # We need a character assigned if any of the following fields is set:
         return (
             self.event_cp != 0
@@ -192,6 +202,7 @@ class PlayerRecord(BaseModel, frozen=True):
       user: If populated, either the username of the player or something
         descriptive. This is only used for debugging purposes.
       xp: Amount of XP the player has earned.
+      sp: Service point balance for this player.
       bonus_cp: Amount of Bonus CP assigned to this player.
       events_played: Number of events attended as a PC.
       last_played: Last date when any character was used as a PC.
@@ -208,6 +219,7 @@ class PlayerRecord(BaseModel, frozen=True):
 
     user: int | None = None
     xp: int = 0
+    sp: int = 0
     bonus_cp: int = 0
     events_played: int = 0
     events_staffed: int = 0
@@ -248,6 +260,7 @@ class PlayerRecord(BaseModel, frozen=True):
         #    (But also get some other bits we need)
 
         xp = player.xp
+        sp = player.sp
         bonus_cp = player.bonus_cp
         player_flags = player.flags.copy()
         player_events_played = player.events_played
@@ -276,6 +289,8 @@ class PlayerRecord(BaseModel, frozen=True):
             prev_xp = xp
 
             bonus_cp += award.bonus_cp
+
+            sp += award.sp
 
             if award.event_played:
                 player_events_played += 1
@@ -406,6 +421,7 @@ class PlayerRecord(BaseModel, frozen=True):
         return player.model_copy(
             update={
                 "xp": xp,
+                "sp": sp,
                 "bonus_cp": bonus_cp,
                 "events_played": player_events_played,
                 "events_staffed": player_events_staffed,
