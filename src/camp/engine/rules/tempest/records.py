@@ -114,16 +114,11 @@ class AwardRecord(BaseModel, frozen=True):
             parts.append(f"Bonus CP: {self.bonus_cp}")
         if self.event_xp or self.event_cp:
             parts.append(f"Event: {self.event_xp} XP + {self.event_cp} CP")
-        if self.sp > 0:
-            parts.append(f"SP Gained: +{self.sp}")
-        elif self.sp < 0:
-            parts.append(f"SP Spent: {-self.sp}")
+        if self.sp:
+            parts.append(f"SP: {self.sp:+d}")
 
         if secrets and (
-            self.character_flags
-            or self.player_flags
-            or self.character_grants
-            or self.sp_purchases
+            self.character_flags or self.player_flags or self.character_grants
         ):
             if self.player_flags:
                 pflags = []
