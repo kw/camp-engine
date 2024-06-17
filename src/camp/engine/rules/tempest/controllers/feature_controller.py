@@ -36,6 +36,8 @@ _SUBFEATURE_TYPES: set[str] = {
     "breedadvantage",
     "breedtrait",
     "rolepower",
+    "lostart",
+    "misplacedart",
 }
 _OPTION_BONUS = "__option__"
 
@@ -1145,7 +1147,8 @@ class PlotController(FeatureController):
         for expr, value in grants.items():
             if value == 0:
                 continue
-            if not ruleset.identifier_defined(expr):
+            expr = PropExpression.parse(expr)
+            if not ruleset.identifier_defined(expr.prop):
                 issues.append(
                     Issue(
                         issue_code="plot",

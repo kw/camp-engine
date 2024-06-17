@@ -88,6 +88,7 @@ class AwardRecord(BaseModel, frozen=True):
       character_flags: Arbitrary flags to add to the character. For use in role/class/art access.
       character_grants: Arbitrary grant strings, like "lore#Nature" or "divine-favor:3" or "lp:2",
         in case plot wants to arbitrarily add or subtract things to or from a character card.
+      sp: Tally of service point awards.
     """
 
     date: datetime.date
@@ -115,7 +116,7 @@ class AwardRecord(BaseModel, frozen=True):
         if self.event_xp or self.event_cp:
             parts.append(f"Event: {self.event_xp} XP + {self.event_cp} CP")
         if self.sp:
-            parts.append(f"SP: {self.sp:+d}")
+            parts.append(f"SP {self.sp:+d}")
 
         if secrets and (
             self.character_flags or self.player_flags or self.character_grants
