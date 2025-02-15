@@ -7,6 +7,7 @@ readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.12"
 classifiers = ["Programming Language :: Python :: 3"]
+dependencies = ['pydantic ~= 2.1', 'pyyaml ~= 6.0']
 
 [project.urls]
 "Homepage" = "https://github.com/kw/camp-engine"
@@ -16,17 +17,7 @@ profile = "black"
 force_single_line = true
 
 [tool.poetry]
-name = "camp-engine"
-version = "0.1.0"
-description = ""
-authors = ["Ken Moriarty <ken@kmoriarty.dev>"]
-readme = "README.md"
 packages = [{ include = "camp", from = "src" }]
-
-[tool.poetry.dependencies]
-python = "^3.12.0"
-pydantic = "^2.1.1"
-pyyaml = "^6.0"
 
 [tool.poetry.group.dev.dependencies]
 ipython = "~=8.2"
