@@ -480,8 +480,8 @@ class TempestCharacter(base_engine.CharacterController):
                 # stops existing in the ruleset. This will appear on the character sheet
                 # in a semi-dead state until removed.
                 controller = undefined_controller.UndefinedFeatureController(id, self)
-                if not controller.purchased_ranks:
-                    raise ValueError("No such feature")
+                # if not controller.purchased_ranks:
+                #     raise ValueError("No such feature")
                 return controller
             case "class":
                 return class_controller.ClassController(id, self)
