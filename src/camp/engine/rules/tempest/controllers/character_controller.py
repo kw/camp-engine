@@ -193,8 +193,12 @@ class TempestCharacter(base_engine.CharacterController):
     def features(self) -> dict[str, feature_controller.FeatureController]:
         if self._features:
             return self._features
-        self._features = {id: self._new_controller(id) for id in self.model.features}
-        self._features["__plot__"] = feature_controller.PlotController("__plot__", self)
+        features = {}
+        for id in self.model.features:
+            if (controller := self._new_controller(id)) is not None:
+                features[id] = controller
+        features["__plot__"] = feature_controller.PlotController("__plot__", self)
+        self._features = features
         return self._features
 
     @property
@@ -480,8 +484,8 @@ class TempestCharacter(base_engine.CharacterController):
                 # stops existing in the ruleset. This will appear on the character sheet
                 # in a semi-dead state until removed.
                 controller = undefined_controller.UndefinedFeatureController(id, self)
-                # if not controller.purchased_ranks:
-                #     raise ValueError("No such feature")
+                if not controller.purchased_ranks:
+                    return None
                 return controller
             case "class":
                 return class_controller.ClassController(id, self)
