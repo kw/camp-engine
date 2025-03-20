@@ -25,7 +25,6 @@ class SphereAttribute(attribute_controllers.SumAttribute):
 
     spell_slots = _evaluate_sphere_attr
     spells_known = _evaluate_sphere_attr
-    spells_prepared = _evaluate_sphere_attr
     cantrips = _evaluate_sphere_attr
     powers = _evaluate_sphere_attr
     utilities = _evaluate_sphere_attr

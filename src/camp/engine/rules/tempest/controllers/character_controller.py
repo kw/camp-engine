@@ -456,13 +456,11 @@ class TempestCharacter(base_engine.CharacterController):
             slots = tuple(
                 self.get(f"{sphere}.spell_slots@{tier}") for tier in range(1, 5)
             )
-            prepared = self.get(f"{sphere}.spells_prepared")
             spheres.append(
                 SphereData(
                     name=name,
                     id=sphere,
                     slots=slots,
-                    prepared=prepared,
                 )
             )
         return spheres
@@ -614,4 +612,3 @@ class SphereData:
     name: str
     id: str
     slots: tuple[int]
-    prepared: int

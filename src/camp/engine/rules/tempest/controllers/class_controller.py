@@ -118,14 +118,11 @@ class ClassController(feature_controller.FeatureController):
             )
         slot = int(expr.slot)
         if 1 <= slot <= 4:
-            tier_table = self.character.ruleset.powers[slot]
+            tier_table = self.character.ruleset.spells.get(slot)
+            if not tier_table:
+                return 0
             return tier_table.evaluate(self.value)
         raise ValueError(f"Invalid spell slot tier: {expr}")
-
-    def spells_prepared(self) -> int:
-        if not self.caster:
-            return 0
-        return self.character.ruleset.spells_prepared.evaluate(self.value)
 
     def spells_known(self) -> int:
         if not self.caster:
@@ -135,7 +132,7 @@ class ClassController(feature_controller.FeatureController):
     def cantrips(self) -> int:
         if not self.caster:
             return 0
-        return self.character.ruleset.powers[0].evaluate(self.value)
+        return self.character.ruleset.spells[0].evaluate(self.value)
 
     def cantrips_awarded(self) -> int:
         if not self.caster:
@@ -249,7 +246,9 @@ class ClassController(feature_controller.FeatureController):
             )
         slot = int(expr.slot)
         if 1 <= slot <= 4:
-            tier_table = self.character.ruleset.powers[slot]
+            tier_table = self.character.ruleset.powers.get(slot)
+            if not tier_table:
+                return 0
             return tier_table.evaluate(self.value)
         raise ValueError(f"Invalid power tier: {expr}")
 
@@ -396,9 +395,6 @@ class ClassController(feature_controller.FeatureController):
                 lines.append(f"Cantrips: {character.get(f'{self.id}.cantrips')}")
                 lines.append(
                     f"Spell slots: {character.get(f'{self.id}.spell_slots@1')}/{character.get(f'{self.id}.spell_slots@2')}/{character.get(f'{self.id}.spell_slots@3')}/{character.get(f'{self.id}.spell_slots@4')}"
-                )
-                lines.append(
-                    f"Spells prepared: {character.get(f'{self.id}.spells_prepared')}"
                 )
                 lines.append(
                     f"Spells that can be added to spellbook: {self.spellbook_available}"

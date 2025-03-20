@@ -160,28 +160,26 @@ def test_multiclass_sellback(character: TempestCharacter):
 
 
 def test_arcane_spell_slots(character: TempestCharacter):
-    # TODO: Support for bonus archetype spell slots.
     character.xp_level = 7
     assert character.apply("wizard:7")
-    assert character.get("wizard.spell_slots") == 6
-    assert character.get("wizard.spell_slots@1") == 5
-    assert character.get("wizard.spell_slots@2") == 1
+    assert character.get("wizard.spell_slots") == 9
+    assert character.get("wizard.spell_slots@1") == 6
+    assert character.get("wizard.spell_slots@2") == 3
     assert character.get("wizard.spell_slots@3") == 0
-    assert character.get("arcane.spell_slots") == 6
-    assert character.get("arcane.spell_slots@1") == 5
+    assert character.get("arcane.spell_slots") == 9
+    assert character.get("arcane.spell_slots@1") == 6
     assert character.get("divine.spell_slots@1") == 0
 
 
 def test_divine_spell_slots(character: TempestCharacter):
-    # TODO: Support for bonus archetype spell slots.
     character.xp_level = 7
     character.apply("cleric:7")
-    assert character.meets_requirements("cleric.spell_slots:6")
-    assert character.meets_requirements("cleric.spell_slots@1:5")
-    assert character.meets_requirements("cleric.spell_slots@2:1")
+    assert character.meets_requirements("cleric.spell_slots:9")
+    assert character.meets_requirements("cleric.spell_slots@1:6")
+    assert character.meets_requirements("cleric.spell_slots@2:3")
     assert not character.meets_requirements("cleric.spell_slots@3")
-    assert character.meets_requirements("divine.spell_slots:6")
-    assert character.meets_requirements("divine.spell_slots@1:5")
+    assert character.meets_requirements("divine.spell_slots:9")
+    assert character.meets_requirements("divine.spell_slots@1:6")
     assert not character.meets_requirements("arcane.spell_slots@1")
 
 
@@ -196,15 +194,12 @@ def test_martial_spells(character: TempestCharacter):
     assert not character.get("martial.spell_slots@1")
     assert not character.get("martial.spell_slots@2")
     assert not character.get("fighter.spells_known")
-    assert not character.get("fighter.spells_prepared")
     assert not character.get("fighter.cantrips")
     assert not character.get("martial.spells_known")
-    assert not character.get("martial.spells_prepared")
     assert not character.get("martial.cantrips")
 
 
 def test_mixed_spell_slots(character: TempestCharacter):
-    # TODO: Support for bonus archetype spell slots.
     character.xp_level = 20
     character.apply("cleric:7")
     character.apply("wizard:7")
@@ -254,8 +249,6 @@ def test_caster_attributes(character: TempestCharacter):
     assert character.apply("wizard:7")
     assert character.get("wizard.spells_known") == 7
     assert character.get("arcane.spells_known") == 7
-    assert character.get("wizard.spells_prepared") == 5
-    assert character.get("arcane.spells_prepared") == 5
     assert character.get("wizard.cantrips") == 3
     assert character.get("arcane.cantrips") == 3
     assert character.get("divine.spells_known") == 0
@@ -265,10 +258,10 @@ def test_caster_attributes(character: TempestCharacter):
 def test_martial_powers(character: TempestCharacter):
     character.xp_level = 7
     assert character.apply("fighter:7")
-    assert character.get("fighter.powers") == 6
-    assert character.get("fighter.powers@1") == 5
+    assert character.get("fighter.powers") == 4
+    assert character.get("fighter.powers@1") == 3
     assert character.get("fighter.powers@2") == 1
     assert character.get("fighter.utilities") == 3
-    assert character.get("martial.powers") == 6
+    assert character.get("martial.powers") == 4
     assert character.get("arcane.powers") == 0
     assert character.get("divine.powers") == 0

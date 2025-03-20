@@ -478,8 +478,14 @@ class Ruleset(base_models.BaseRuleset):
         3: ScalingTable(base=0, factor=11, rounding="down"),
         4: ScalingTable(base=0, factor=16, rounding="down"),
     }
+    spells: dict[int, Table] = {
+        0: ScalingTable(base=0, factor=2, rounding="down"),
+        1: ScalingTable(base=1, factor=2, rounding="down"),
+        2: ScalingTable(base=0, factor=6, rounding="down"),
+        3: ScalingTable(base=0, factor=11, rounding="down"),
+        4: ScalingTable(base=0, factor=16, rounding="down"),
+    }
     spells_known: Table = ScalingTable(base=1, factor=1)
-    spells_prepared: Table = ScalingTable(base=1, factor=1)
     plural_names: dict[str, str] = {
         "Class": "Classes",
         "Utility": "Utilities",
@@ -574,11 +580,6 @@ class Ruleset(base_models.BaseRuleset):
             name="Powerbook",
             scoped=True,
             hidden=True,
-        ),
-        Attribute(
-            id="spells_prepared",
-            name="Spells Prepared",
-            scoped=True,
         ),
         Attribute(
             id="powers",
