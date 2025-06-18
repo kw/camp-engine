@@ -931,6 +931,25 @@ class ChoiceMutation(pydantic.BaseModel):
     value: str
     remove: bool = False
 
+    @property
+    def expression(self) -> str:
+        return f"{'!' if self.remove else ''}{self.id}!{self.choice}={self.value}"
+
+    @classmethod
+    def parse(cls, expr: str) -> ChoiceMutation:
+        remove = False
+        if expr.startswith("-"):
+            remove = True
+            expr = expr[1:]
+        id, rest = expr.split("!", 1)
+        choice, value = rest.split("=", 1)
+        return ChoiceMutation(
+            id=id,
+            choice=choice,
+            value=value,
+            remove=remove,
+        )
+
 
 class NoteMutation(pydantic.BaseModel):
     type: Literal["note"] = "note"

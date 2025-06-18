@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from abc import ABC
 from abc import abstractmethod
-from abc import abstractproperty
 from dataclasses import dataclass
 from functools import cached_property
 from functools import total_ordering
@@ -15,9 +14,12 @@ from typing import Type
 from packaging import version
 
 from ..utils import dump_dict
+from ..utils import dump_json
 from ..utils import maybe_iter
 from . import base_models
 from .decision import Decision
+
+MAX_PASSES = 4
 
 
 class CharacterController(ABC):
@@ -33,7 +35,8 @@ class CharacterController(ABC):
     def ruleset(self):
         return self.engine.ruleset
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def features(self) -> dict[str, BaseFeatureController]: ...
 
     def __init__(self, engine: Engine, model: base_models.CharacterModel):
@@ -63,6 +66,9 @@ class CharacterController(ABC):
         if not isinstance(data, dict):
             pass
         return data
+
+    def dump_json(self) -> str:
+        return dump_json(self.model)
 
     def dump_model(self) -> base_models.CharacterModel:
         """Returns a copy of the current model."""
@@ -150,8 +156,14 @@ class CharacterController(ABC):
 
     def reconcile(self):
         """Perform any necessary reconciliation of the character model."""
-        for feat in list(self.features.values()):
-            feat.reconcile()
+        changed = True
+        passes_remaining = MAX_PASSES
+
+        while changed and passes_remaining > 0:
+            changed = False
+            passes_remaining -= 1
+            for feat in list(self.features.values()):
+                changed |= bool(feat.reconcile())
 
     def apply(
         self,
@@ -161,7 +173,10 @@ class CharacterController(ABC):
     ) -> Decision:
         rd: Decision
         if isinstance(mutation, str):
-            mutation = base_models.RankMutation.parse(mutation)
+            if "=" in mutation:
+                mutation = base_models.ChoiceMutation.parse(mutation)
+            else:
+                mutation = base_models.RankMutation.parse(mutation)
         try:
             match mutation:
                 case base_models.RankMutation():
@@ -591,18 +606,19 @@ class PropertyController(ABC):
             return 0
         return controller.get(expr)
 
-    def reconcile(self) -> None:
+    def reconcile(self) -> bool:
         """Override to update computations on change."""
+        return False
 
-    def propagate(self, data: PropagationData) -> None:
+    def propagate(self, data: PropagationData) -> bool:
         """Used to accept things like granted ranks from other sources."""
         if not data and data.source not in self._propagation_data:
-            return
+            return False
         if data:
             self._propagation_data[data.source] = data
         else:
             del self._propagation_data[data.source]
-        self.reconcile()
+        return self.reconcile()
 
     def subcontroller(
         self, expr: str | base_models.PropExpression
@@ -743,10 +759,12 @@ class BaseFeatureController(PropertyController):
     def meets_requirements(self) -> Decision:
         return self.character.meets_requirements(self.definition.requires, self.full_id)
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def has_available_choices(self) -> bool: ...
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def choices(self) -> dict[str, ChoiceController] | None: ...
 
     @property
@@ -995,7 +1013,8 @@ class BaseFeatureController(PropertyController):
         """The number of ranks left to be taken, regardless of whether they can be taken right now."""
         return self.max_ranks - self.value
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def purchased_ranks(self) -> int:
         """How many ranks the player has intentionally purchased, whether or not they're used."""
         return 0
@@ -1069,7 +1088,8 @@ class BaseFeatureController(PropertyController):
     def currency(self) -> str | None:
         return None
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def feature_list_name(self) -> str: ...
 
     def validate(self) -> Decision:
@@ -1139,10 +1159,12 @@ class AttributeController(PropertyController):
 
 
 class ChoiceController(ABC):
-    @abstractproperty
+    @property
+    @abstractmethod
     def id(self) -> str: ...
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def name(self) -> str: ...
 
     @property
@@ -1247,10 +1269,12 @@ class Engine(ABC):
         """Convenience property that provides all feature definitions."""
         return self.ruleset.features
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def sheet_type(self) -> Type[base_models.CharacterModel]: ...
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def character_controller(self) -> Type[CharacterController]:
         return CharacterController
 

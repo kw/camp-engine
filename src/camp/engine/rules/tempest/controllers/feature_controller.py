@@ -764,7 +764,7 @@ class FeatureController(base_engine.BaseFeatureController):
         self.reconcile()
         return Decision.OK
 
-    def reconcile(self) -> None:
+    def reconcile(self) -> bool:
         """If this controller's value has been updated (or on an initial pass on character load), update grants.
 
         Grants represent any feature (or feature ranks) gained simply by possessing this feature (or a number of ranks of it).
@@ -773,11 +773,13 @@ class FeatureController(base_engine.BaseFeatureController):
 
         Subclasses may have more specific grants. For example, a character class may automatically grant certain features at specific levels.
         """
+        old_ranks = self._effective_ranks
         self._effective_ranks = min(self.bonus + self.purchased_ranks, self.max_ranks)
         self._link_to_character()
         self._update_choices()
         self._link_model()
-        self._perform_propagation()
+        propagation_changed = self._perform_propagation()
+        return old_ranks != self._effective_ranks or propagation_changed
 
     def _update_choices(self) -> None:
         if self.choice_defs:
@@ -809,9 +811,11 @@ class FeatureController(base_engine.BaseFeatureController):
 
     def _perform_propagation(self) -> None:
         props = self._gather_propagation()
+        changed = False
         for id, data in props.items():
             if controller := self.character.controller(id):
-                controller.propagate(data)
+                changed |= controller.propagate(data)
+        return changed
 
     def extra_grants(self) -> dict[str, int]:
         """Return any extra grants that should be applied for this feature.
