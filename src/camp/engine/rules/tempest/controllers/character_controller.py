@@ -95,7 +95,7 @@ class TempestCharacter(base_engine.CharacterController):
 
         By default, this is 1 + 2 * Level.
         """
-        return self.ruleset.cp_baseline + (self.ruleset.cp_per_level * self.level.value)
+        return self.ruleset.cp_baseline + (self.ruleset.cp_per_level * self.xp_level)
 
     @property
     def freeplay_cp(self) -> int:
