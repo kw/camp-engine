@@ -20,6 +20,18 @@ def test_basic_cp_math(character: TempestCharacter):
     assert not character.can_purchase("basic-skill")
 
 
+def test_cp_per_level(character: TempestCharacter):
+    # Starting level is 2
+    # Starting CP is 1 + 2*Level
+    assert character.cp.value == 5
+    character.xp_level = 5
+    character.reconcile()
+    assert character.cp.value == 11
+    character.xp_level = 15
+    character.reconcile()
+    assert character.cp.value == 31
+
+
 def test_basic_refund(character: TempestCharacter):
     character.freeplay_cp = 14
     cp = character.cp.value
