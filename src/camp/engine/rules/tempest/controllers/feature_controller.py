@@ -18,6 +18,7 @@ from camp.engine.rules.decision import Decision
 
 from .. import defs
 from .. import models
+from . import attribute_controllers
 from . import choice_controller
 
 _MUST_BE_POSITIVE = Decision(success=False, reason="Value must be positive.")
@@ -588,15 +589,20 @@ class FeatureController(base_engine.BaseFeatureController):
             limit = basis
         return limit
 
+    @cached_property
+    def child_purchases(self):
+        return attribute_controllers.ChildPurchaseController(
+            "child_purchases", self.character, self
+        )
+
     @property
     def child_purchase_count(self) -> int:
         return sum(c.purchased_ranks for c in self.children if c.purchase_limit_applies)
 
     @property
     def child_purchase_remaining(self) -> int | None:
-        if (limit := self.child_purchase_limit) is not None:
-            return limit - self.child_purchase_count
-        return None
+        limit = self.child_purchases.value
+        return limit - self.child_purchase_count
 
     @property
     def child_purchase_budget(self) -> int | None:
@@ -1081,6 +1087,22 @@ class FeatureController(base_engine.BaseFeatureController):
             for choice in choices.values():
                 if choice_issues := choice.issues():
                     issues.extend(choice_issues)
+        if (cpr := self.child_purchase_remaining) and cpr < 0:
+            issues.append(
+                Issue(
+                    issue_code="too-many-children",
+                    reason=f"{self.display_name()} has too many subfeatures purchased (remove {-cpr}).",
+                    feature_id=self.full_id,
+                )
+            )
+        if (cpb := self.child_purchase_budget) and cpb < 0:
+            issues.append(
+                Issue(
+                    issue_code="too-expensive-children",
+                    reason=f"{self.display_name()} has too many subfeatures purchased (remove {cpb} points).",
+                    feature_id=self.full_id,
+                )
+            )
         return issues
 
 

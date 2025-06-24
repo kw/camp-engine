@@ -542,6 +542,13 @@ class Ruleset(base_models.BaseRuleset):
             scoped=True,
             hidden=True,
         ),
+        Attribute(
+            id="child_purchases",
+            name="Child Purchases",
+            hidden=True,
+            scoped=True,
+            default_value=0,
+        ),
         Attribute(id="spikes", name="Spikes", default_value=0),
         Attribute(id="utilities", name="Utilities", scoped=True),
         Attribute(id="cantrips", name="Cantrips", scoped=True),

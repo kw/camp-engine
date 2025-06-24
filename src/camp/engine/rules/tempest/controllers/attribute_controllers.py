@@ -12,6 +12,18 @@ class AttributeController(base_engine.AttributeController):
         return sum(p.grants for p in self._propagation_data.values())
 
 
+class ChildPurchaseController(AttributeController):
+    def __init__(self, id, character, parent):
+        super().__init__(id, character)
+        self._feature_controller = parent
+
+    @property
+    def value(self):
+        if (cpl := self._feature_controller.child_purchase_limit) is not None:
+            return super().value + cpl
+        return 0
+
+
 class LifePointController(AttributeController):
     @property
     def value(self):
