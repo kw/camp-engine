@@ -7,6 +7,7 @@ from camp.engine.rules import base_engine
 from camp.engine.rules.base_models import Discount
 from camp.engine.rules.base_models import Issue
 from camp.engine.rules.base_models import PropExpression
+from camp.engine.rules.base_models import Table
 from camp.engine.rules.decision import Decision
 
 from .. import defs
@@ -86,19 +87,23 @@ class ClassController(feature_controller.FeatureController):
 
     @property
     def martial(self) -> bool:
-        return self.definition.sphere == "martial"
+        return self.definition.sphere == "martial" or self.definition.powers
+
+    @property
+    def dual(self) -> bool:
+        return self.definition.sphere == "dual"
 
     @property
     def arcane(self) -> bool:
-        return self.definition.sphere == "arcane"
+        return self.definition.sphere == "arcane" or self.dual
 
     @property
     def divine(self) -> bool:
-        return self.definition.sphere == "divine"
+        return self.definition.sphere == "divine" or self.dual
 
     @property
     def caster(self) -> bool:
-        return self.definition.sphere != "martial"
+        return self.definition.sphere != "martial" or self.definition.spells
 
     @property
     def _ranks_tag(self) -> str:
@@ -107,6 +112,32 @@ class ClassController(feature_controller.FeatureController):
     @property
     def _max_ranks_tag(self) -> str:
         return f"{self.max_ranks} levels"
+
+    @cached_property
+    def _spell_table(self) -> dict[int, Table]:
+        if self.definition.spells:
+            return self.definition.spells
+        elif self.definition.class_type == "basic":
+            return self.character.ruleset.spells
+        elif self.definition.class_type == "advanced":
+            return self.character.ruleset.ac_spells
+        else:
+            raise NotImplementedError
+
+    @cached_property
+    def _spells_known_table(self) -> Table:
+        return self.definition.spells_known or self.character.ruleset.spells_known
+
+    @cached_property
+    def _power_table(self) -> dict[int, Table]:
+        if self.definition.powers:
+            return self.definition.powers
+        elif self.definition.class_type == "basic":
+            return self.character.ruleset.powers
+        elif self.definition.class_type == "advanced":
+            return self.character.ruleset.ac_powers
+        else:
+            raise NotImplementedError
 
     def spell_slots(self, expr: PropExpression) -> int:
         if not self.caster:
@@ -118,7 +149,7 @@ class ClassController(feature_controller.FeatureController):
             )
         slot = int(expr.slot)
         if 1 <= slot <= 4:
-            tier_table = self.character.ruleset.spells.get(slot)
+            tier_table = self._spell_table.get(slot)
             if not tier_table:
                 return 0
             return tier_table.evaluate(self.value)
@@ -127,12 +158,12 @@ class ClassController(feature_controller.FeatureController):
     def spells_known(self) -> int:
         if not self.caster:
             return 0
-        return self.character.ruleset.spells_known.evaluate(self.value)
+        return self._spells_known_table.evaluate(self.value)
 
     def cantrips(self) -> int:
         if not self.caster:
             return 0
-        return self.character.ruleset.spells[0].evaluate(self.value)
+        return self._spell_table[0].evaluate(self.value)
 
     def cantrips_awarded(self) -> int:
         if not self.caster:
@@ -238,7 +269,7 @@ class ClassController(feature_controller.FeatureController):
         return issues
 
     def powers(self, expr: PropExpression) -> int:
-        if self.caster:
+        if not self.martial:
             return 0
         if expr is None or expr.slot is None:
             return sum(
@@ -246,16 +277,16 @@ class ClassController(feature_controller.FeatureController):
             )
         slot = int(expr.slot)
         if 1 <= slot <= 4:
-            tier_table = self.character.ruleset.powers.get(slot)
+            tier_table = self._power_table.get(slot)
             if not tier_table:
                 return 0
             return tier_table.evaluate(self.value)
         raise ValueError(f"Invalid power tier: {expr}")
 
     def utilities(self) -> int:
-        if self.caster:
+        if not self.martial:
             return 0
-        return self.character.ruleset.powers[0].evaluate(self.value)
+        return self._power_table[0].evaluate(self.value)
 
     def can_afford(self, value: int = 1) -> Decision:
         character_available = self.character.levels_available

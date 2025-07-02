@@ -209,10 +209,13 @@ class SubFeatureDef(BaseFeatureDef):
 
 class ClassDef(BaseFeatureDef):
     type: Literal["class"] = "class"
-    sphere: Literal["arcane", "divine", "martial"] = "martial"
+    sphere: Literal["arcane", "divine", "dual", "martial"] = "martial"
     starting_features: Grantable | None = None
     multiclass_features: Grantable | None = None
     class_type: Literal["basic", "advanced", "epic"] = "basic"
+    spells: dict[int, Table] | None = None
+    spells_known: Table | None = None
+    powers: dict[int, Table] | None = None
 
     # At time of writing, only used for Artisan specialization tags.
     specializations: set[str] | None = None
@@ -479,6 +482,20 @@ class Ruleset(base_models.BaseRuleset):
         4: ScalingTable(base=0, factor=16, rounding="down"),
     }
     spells: dict[int, Table] = {
+        0: ScalingTable(base=0, factor=2, rounding="down"),
+        1: ScalingTable(base=1, factor=2, rounding="down"),
+        2: ScalingTable(base=0, factor=6, rounding="down"),
+        3: ScalingTable(base=0, factor=11, rounding="down"),
+        4: ScalingTable(base=0, factor=16, rounding="down"),
+    }
+    ac_powers: dict[int, Table] = {
+        0: ScalingTable(base=0, factor=2, rounding="down"),
+        1: ScalingTable(base=1, factor=2, rounding="down"),
+        2: ScalingTable(base=0, factor=6, rounding="down"),
+        3: ScalingTable(base=0, factor=11, rounding="down"),
+        4: ScalingTable(base=0, factor=16, rounding="down"),
+    }
+    ac_spells: dict[int, Table] = {
         0: ScalingTable(base=0, factor=2, rounding="down"),
         1: ScalingTable(base=1, factor=2, rounding="down"),
         2: ScalingTable(base=0, factor=6, rounding="down"),
