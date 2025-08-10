@@ -910,8 +910,6 @@ class FeatureController(base_engine.BaseFeatureController):
             self_value = self.value
             if isinstance(grant_value, (list, dict)):
                 grant_value = utils.table_lookup(grant_value, self_value)
-            if grants.per_rank:
-                grant_value *= self_value
             grant_map[grants.id] += grant_value
         else:
             raise NotImplementedError(f"Unexpected grant value: {grants}")

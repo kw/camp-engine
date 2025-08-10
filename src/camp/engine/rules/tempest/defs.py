@@ -25,7 +25,6 @@ class GrantDef(base_models.BaseModel):
 
     id: str
     value: int | list[str] | dict[int, int] = 1
-    per_rank: bool = False
 
 
 Grantable: TypeAlias = str | list[str] | dict[str, int] | GrantDef
