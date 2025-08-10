@@ -27,30 +27,20 @@ class ClassController(feature_controller.FeatureController):
     def class_type(self) -> Literal["basic", "advanced", "epic"]:
         return self.definition.class_type
 
-    @property
-    def is_archetype(self) -> bool:
-        """Is this currently the archetype class?"""
-        return self.model.is_archetype_class
+    @cached_property
+    def extensions(self) -> list[ClassController]:
+        ext: list[ClassController] = []
+        for expr in self.definition._extension_ids:
+            fc = self.character.feature_controller(expr)
+            ext.append(fc)
 
-    @property
-    def is_legal_archetype(self) -> bool:
-        """Could this be chosen as the archetype class?"""
-        if self.class_type != "basic":
-            return False
-        return self in self.character.archetype_legal_classes
+        return ext
 
-    @property
-    def archetype_powers(self) -> list[feature_controller.FeatureController]:
-        return (fc for fc in self.children if fc.definition.type == "archetype")
-
-    @is_archetype.setter
-    def is_archetype(self, value: bool) -> None:
-        self.model.is_archetype_class = value
-        if value:
-            # There can be only one primary class
-            for controller in self.character.classes:
-                if controller.id != self.full_id:
-                    controller.is_archetype = False
+    @cached_property
+    def extends(self) -> ClassController | None:
+        if self.definition.extends:
+            return self.character.feature_controller(self.definition.extends)
+        return None
 
     @property
     def is_starting(self) -> bool:
@@ -87,7 +77,7 @@ class ClassController(feature_controller.FeatureController):
 
     @property
     def martial(self) -> bool:
-        return self.definition.sphere == "martial" or self.definition.powers
+        return self.definition.sphere == "martial" or self.definition.powers is not None
 
     @property
     def dual(self) -> bool:
@@ -103,7 +93,11 @@ class ClassController(feature_controller.FeatureController):
 
     @property
     def caster(self) -> bool:
-        return self.definition.sphere != "martial" or self.definition.spells
+        return (
+            self.definition.sphere != "martial"
+            or self.definition.spells is not None
+            or self.definition.spells_known is not None
+        )
 
     @property
     def _ranks_tag(self) -> str:
@@ -113,34 +107,49 @@ class ClassController(feature_controller.FeatureController):
     def _max_ranks_tag(self) -> str:
         return f"{self.max_ranks} levels"
 
+    @property
+    def extension_value(self) -> int:
+        return self.value + sum(ex.value for ex in self.extensions)
+
     @cached_property
     def _spell_table(self) -> dict[int, Table]:
-        if self.definition.spells:
+        if isinstance(self.definition.spells, dict):
             return self.definition.spells
-        elif self.definition.class_type == "basic":
+        elif self.definition.extends:
+            # Extension classes don't have their own tables.
+            return {}
+        elif self.class_type == "basic":
             return self.character.ruleset.spells
-        elif self.definition.class_type == "advanced":
+        elif self.class_type == "advanced":
             return self.character.ruleset.ac_spells
         else:
             raise NotImplementedError
 
     @cached_property
-    def _spells_known_table(self) -> Table:
-        return self.definition.spells_known or self.character.ruleset.spells_known
+    def _spells_known_table(self) -> Table | None:
+        if self.definition.extends:
+            # Extension classes don't have their own tables.
+            return None
+        if isinstance(self.definition.spells_known, Table):
+            return self.definition.spells_known
+        return self.character.ruleset.spells_known
 
     @cached_property
     def _power_table(self) -> dict[int, Table]:
-        if self.definition.powers:
+        if isinstance(self.definition.powers, dict):
             return self.definition.powers
-        elif self.definition.class_type == "basic":
+        elif self.definition.extends:
+            # Extension classes don't have their own tables.
+            return {}
+        elif self.class_type == "basic":
             return self.character.ruleset.powers
-        elif self.definition.class_type == "advanced":
+        elif self.class_type == "advanced":
             return self.character.ruleset.ac_powers
         else:
             raise NotImplementedError
 
     def spell_slots(self, expr: PropExpression) -> int:
-        if not self.caster:
+        if self.value <= 0 or not self.caster:
             return 0
         if expr.slot is None:
             return sum(
@@ -152,18 +161,22 @@ class ClassController(feature_controller.FeatureController):
             tier_table = self._spell_table.get(slot)
             if not tier_table:
                 return 0
-            return tier_table.evaluate(self.value)
+            return tier_table.evaluate(self.extension_value)
         raise ValueError(f"Invalid spell slot tier: {expr}")
 
     def spells_known(self) -> int:
-        if not self.caster:
+        if self.value <= 0 or not self.caster:
             return 0
-        return self._spells_known_table.evaluate(self.value)
+        if t := self._spells_known_table:
+            return t.evaluate(self.extension_value)
+        return 0
 
     def cantrips(self) -> int:
-        if not self.caster:
+        if self.value <= 0 or not self.caster:
             return 0
-        return self._spell_table[0].evaluate(self.value)
+        if table := self._spell_table.get(0):
+            return table.evaluate(self.extension_value)
+        return 0
 
     def cantrips_awarded(self) -> int:
         if not self.caster:
@@ -229,8 +242,11 @@ class ClassController(feature_controller.FeatureController):
     def powers_available(self) -> spellbook_controller.TierTuple:
         if not self.powerbook:
             return spellbook_controller.EMPTY_TIER
-        return self.powerbook.powers_available_per_class.get(
-            self.full_id, spellbook_controller.EMPTY_TIER
+        return (
+            self.character.get(f"{self.full_id}.powers@1"),
+            self.character.get(f"{self.full_id}.powers@2"),
+            self.character.get(f"{self.full_id}.powers@3"),
+            self.character.get(f"{self.full_id}.powers@4"),
         )
 
     def issues(self) -> list[Issue] | None:
@@ -269,7 +285,7 @@ class ClassController(feature_controller.FeatureController):
         return issues
 
     def powers(self, expr: PropExpression) -> int:
-        if not self.martial:
+        if self.value <= 0 or not self.martial:
             return 0
         if expr is None or expr.slot is None:
             return sum(
@@ -280,17 +296,31 @@ class ClassController(feature_controller.FeatureController):
             tier_table = self._power_table.get(slot)
             if not tier_table:
                 return 0
-            return tier_table.evaluate(self.value)
+            return tier_table.evaluate(self.extension_value)
         raise ValueError(f"Invalid power tier: {expr}")
 
     def utilities(self) -> int:
-        if not self.martial:
+        if self.value <= 0 or not self.martial:
             return 0
-        return self._power_table[0].evaluate(self.value)
+        if table := self._power_table.get(0):
+            return table.evaluate(self.extension_value)
+        return 0
 
     def can_afford(self, value: int = 1) -> Decision:
         character_available = self.character.levels_available
         available = min(character_available, self.purchaseable_ranks)
+        if (
+            self.class_type == "advanced"
+            and self.value == 0
+            and self.character.advanced_classes >= 3
+        ):
+            return Decision.NO
+        if (
+            self.class_type == "epic"
+            and self.value == 0
+            and self.character.epic_classes > 0
+        ):
+            return Decision.NO
         return Decision(success=available >= value, amount=available)
 
     def increase(self, value: int) -> Decision:
@@ -299,14 +329,6 @@ class ClassController(feature_controller.FeatureController):
             value = 2
         if not (rd := super().increase(value)):
             return rd
-        if (
-            not self.is_archetype
-            and max(
-                (c.value for c in self.character.classes if c.id != self.id), default=0
-            )
-            < self.purchased_ranks
-        ):
-            self.is_archetype = True
         if self.character.starting_class is None:
             self.is_starting = True
         self.reconcile()
@@ -336,14 +358,6 @@ class ClassController(feature_controller.FeatureController):
             return rd
         if self.model.ranks <= 0:
             self.model.is_starting_class = False
-            self.model.is_archetype_class = False
-        if (
-            self.is_archetype
-            and max((c.value for c in self.character.classes), default=0)
-            > self.purchased_ranks
-        ):
-            # TODO: Auto-set to the new highest
-            pass
         self.reconcile()
         return Decision(success=True, amount=self.value)
 
@@ -355,11 +369,6 @@ class ClassController(feature_controller.FeatureController):
             grants.update(self._gather_grants(self.definition.starting_features))
         else:
             grants.update(self._gather_grants(self.definition.multiclass_features))
-        # Archetype features
-        if self.is_archetype:
-            for feature in self.archetype_powers:
-                if feature.meets_requirements:
-                    grants[feature.id] = 1
         return grants
 
     @property
@@ -369,8 +378,8 @@ class ClassController(feature_controller.FeatureController):
         if tags is None:
             return {}
         counts = {tag: 0 for tag in tags}
-
-        for feature in self.children:
+        features = self.character.features.copy()
+        for feature in features.values():
             for tag in tags:
                 if tag in feature.tags:
                     counts[tag] += feature.value
@@ -417,9 +426,17 @@ class ClassController(feature_controller.FeatureController):
         if self.value > 0:
             if self.is_starting:
                 lines.append("This is your starting class.")
-            if self.is_archetype:
-                lines.append("This is your archetype class.")
-            if self.caster:
+            if ext := self.extends:
+                lines.append(f"Extends [{ext.display_name()}](../{ext.id})")
+            elif (ext_value := self.extension_value) and ext_value != self.value:
+                lines.append(f"Extended by {ext_value - self.value} levels by:\n")
+                lines.extend(
+                    f"- [{e.display_name()}](../{e.id}) ({e.value})"
+                    for e in self.extensions
+                )
+                lines.append("\n")
+
+            if self.caster and not ext:
                 lines.append(
                     f"Spellcasting sphere: {character.display_name(self.sphere)}"
                 )
@@ -430,7 +447,7 @@ class ClassController(feature_controller.FeatureController):
                 lines.append(
                     f"Spells that can be added to spellbook: {self.spellbook_available}"
                 )
-            else:
+            if self.martial and not ext:
                 lines.append(f"Utilities: {character.get(f'{self.id}.utilities')}")
                 lines.append(
                     f"Powers: {character.get(f'{self.id}.powers@1')}/{character.get(f'{self.id}.powers@2')}/{character.get(f'{self.id}.powers@3')}/{character.get(f'{self.id}.powers@4')}"
@@ -458,12 +475,17 @@ class ClassController(feature_controller.FeatureController):
 
     @property
     def choices(self) -> dict[str, base_engine.ChoiceController]:
+        if self.value < 1:
+            return {}
         choices = super().choices or {}
-        if not self.is_archetype and self.is_legal_archetype:
-            choices["archetype"] = ArchetypeChoiceController(self)
         if self.specialization_tied:
             choices["specialization"] = SpecializationChoiceController(self)
+        if self.class_type == "advanced" and self.definition.extends is None:
+            choices["tierswap"] = TierSwapChoiceController(self)
         return choices
+
+    def sort_key(self):
+        return (-self.value, self.display_name())
 
     def __str__(self) -> str:
         if self.value > 0:
@@ -471,52 +493,62 @@ class ClassController(feature_controller.FeatureController):
         return self.definition.name
 
 
-class ArchetypeChoiceController(base_engine.ChoiceController):
-    """This controller is presented when a the player has a choice of archetypes available.
-
-    Normally a character's archetype class is their highest-level base class, but when more than
-    one class fits that requirement the player can choose among them.
-
-    This choice is only presented on a class that could, at this minute, be your archetype.
-    Many of the fields can therefore be hard-coded.
-    """
-
-    id = "archetype"
-    name = "Archetype"
-    description = (
-        "Your highest-level base classes are eligible to become archetype classes."
-    )
-    limit = 1
-    choices_remaining = 1
-    advertise = False
+class TierSwapChoiceController(choice_controller.ChoiceController):
+    name = "Base Class Power Swap"
+    description = "You may sacrifice a power or known spell from a base class to gain an appropriate slot for this class. After selection an option here, you will need to manually remove a spell or power from the chosen class."
+    multi = True
     _class: ClassController
 
+    @property
+    def limit(self) -> int:
+        return self._class.value
+
     def __init__(self, class_controller: ClassController):
+        super().__init__(class_controller, "tierswap")
         self._class = class_controller
 
     def available_choices(self) -> dict[str, str]:
-        return {
-            "set-archetype": f"Set {self._class.display_name()} as your archetype class"
-        }
+        choices = {}
+        if self.choices_remaining <= 0:
+            return choices
+        character = self._class.character
+        powers_available = self.categorize_powers_available()
+        for claz in character.classes:
+            if claz.id == self._class.id or claz.class_type != "basic":
+                continue
+            for p in powers_available:
+                choice = f"{claz.id}.{p}"
+                if character.get(choice) > 0:
+                    choices[choice] = choice
+        return choices
 
-    def taken_choices(self) -> dict[str, int]:
-        return {}
+    def update_propagation(
+        self, grants: dict[str, int], discounts: dict[str, list[Discount]]
+    ) -> None:
+        for choice, value in self.choice_ranks().items():
+            expr = PropExpression.parse(choice)
+            gain = expr.model_copy(update={"prefixes": (self._class.id,)})
+            grants[expr.full_id] = -value
+            grants[gain.full_id] = value
 
-    def choose(self, choice: str) -> Decision:
-        if choice != "set-archetype":
-            return Decision(success=False, reason="Invalid choice")
-        if self._class.is_archetype:
-            return Decision(success=True, reason="Already the archetype class")
-        if not self._class.is_legal_archetype:
-            return Decision(success=False, reason="Not a legal archetype class")
-        self._class.is_archetype = True
-        return Decision.OK
-
-    def unchoose(self, choice: str) -> Decision:
-        return Decision.NO
-
-    def update_propagation(self, *args, **kwargs) -> None:
-        pass
+    def categorize_powers_available(self) -> set[str]:
+        power_tiers = set()
+        for child in self._class.children:
+            # We only want to give the player the option to sacrifice for a
+            # given type if the class actually has that type left to purchase.
+            if child.max_attained:
+                continue
+            match child.feature_type:
+                case "power":
+                    if child.tier is not None:
+                        power_tiers.add(f"powers@{child.tier}")
+                case "utility":
+                    power_tiers.add("utilities")
+                case "spell":
+                    power_tiers.add("spells_known")
+                case "cantrip":
+                    power_tiers.add("cantrips")
+        return power_tiers
 
 
 class SpecializationChoiceController(choice_controller.ChoiceController):

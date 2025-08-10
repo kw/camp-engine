@@ -7,6 +7,7 @@ from typing import Literal
 from typing import Type
 from typing import TypeAlias
 
+import pydantic
 from pydantic import Field
 from pydantic import PositiveInt
 
@@ -159,6 +160,7 @@ class ChildPurchaseDef(base_models.BaseModel):
 class BaseFeatureDef(base_models.BaseFeatureDef, PowerCard):
     cost: CostDef = None
     sp_cost: int | None = None
+    grants_per_rank: bool = True
     grants: Grantable | None = None
     grant_if: dict[str, base_models.Requirement] | None = None
     rank_grants: dict[int, Grantable] | None = Field(default=None, alias="level_grants")
@@ -209,13 +211,16 @@ class SubFeatureDef(BaseFeatureDef):
 
 class ClassDef(BaseFeatureDef):
     type: Literal["class"] = "class"
+    grants_per_rank: bool = False
+    extends: str | None = None
     sphere: Literal["arcane", "divine", "dual", "martial"] = "martial"
     starting_features: Grantable | None = None
     multiclass_features: Grantable | None = None
     class_type: Literal["basic", "advanced", "epic"] = "basic"
-    spells: dict[int, Table] | None = None
-    spells_known: Table | None = None
-    powers: dict[int, Table] | None = None
+    spells: dict[int, Table] | bool | None = None
+    spells_known: Table | bool | None = None
+    powers: dict[int, Table] | bool | None = None
+    _extension_ids: set[str] = pydantic.PrivateAttr(default_factory=set)
 
     # At time of writing, only used for Artisan specialization tags.
     specializations: set[str] | None = None
@@ -225,6 +230,14 @@ class ClassDef(BaseFeatureDef):
 
     def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
         super().post_validate(ruleset)
+        if self.extends:
+            ruleset.validate_identifiers(self.extends, path=self.def_path)
+            base = ruleset.features[self.extends]
+            if not isinstance(base, ClassDef):
+                raise TypeError(
+                    f"#{self.id} named #{self.extends} as a parent class, but that feature is a #{type(base)}"
+                )
+            base._extension_ids.add(self.id)
         if self.starting_features:
             ruleset.validate_identifiers(
                 _grantable_identifiers(self.starting_features), path=self.def_path
@@ -291,13 +304,9 @@ class InnatePower(BaseFeatureDef):
     type: Literal["innate"] = "innate"
 
 
-class ArchetypePower(BaseFeatureDef):
-    type: Literal["archetype"] = "archetype"
-
-
 class Power(BaseFeatureDef):
     type: Literal["power"] = "power"
-    tier: PositiveInt | None = None
+    tier: PositiveInt
 
 
 class Utility(BaseFeatureDef):
@@ -306,13 +315,13 @@ class Utility(BaseFeatureDef):
 
 class Spell(BaseFeatureDef):
     type: Literal["spell"] = "spell"
-    tier: PositiveInt | None = None
-    sphere: Literal["arcane", "divine", None] = None
+    tier: PositiveInt
+    sphere: Literal["arcane", "divine", "dual"]
 
 
 class Cantrip(BaseFeatureDef):
     type: Literal["cantrip"] = "cantrip"
-    sphere: Literal["arcane", "divine", None] = None
+    sphere: Literal["arcane", "divine", "dual"]
 
 
 class Culture(BaseFeatureDef):
@@ -439,7 +448,6 @@ FeatureDefinitions: TypeAlias = (
     | FlawDef
     | PerkDef
     | InnatePower
-    | ArchetypePower
     | Power
     | Spell
     | Cantrip
@@ -566,6 +574,7 @@ class Ruleset(base_models.BaseRuleset):
             scoped=True,
             default_value=0,
         ),
+        Attribute(id="form", name="Forms", default_value=0),
         Attribute(id="spikes", name="Spikes", default_value=0),
         Attribute(id="utilities", name="Utilities", scoped=True),
         Attribute(id="cantrips", name="Cantrips", scoped=True),
@@ -629,6 +638,12 @@ class Ruleset(base_models.BaseRuleset):
         Attribute(
             id="divine",
             name="Divine",
+            is_tag=True,
+            hidden=True,
+        ),
+        Attribute(
+            id="dual",
+            name="Dual",
             is_tag=True,
             hidden=True,
         ),

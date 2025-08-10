@@ -128,8 +128,12 @@ class TempestCharacter(base_engine.CharacterController):
         return attribute_controllers.LifePointController("lp", self)
 
     @property
-    def spikes(self) -> int:
+    def base_spikes(self) -> int:
         return self.ruleset.spikes.evaluate(self.level.value)
+
+    @cached_property
+    def spikes(self) -> attribute_controllers.SpikesController:
+        return attribute_controllers.SpikesController("spikes", self)
 
     @property
     def can_respend(self) -> bool:
@@ -165,19 +169,20 @@ class TempestCharacter(base_engine.CharacterController):
         return self.xp_level - self.level.value
 
     @property
-    def primary_class(self) -> class_controller.ClassController | None:
-        for controller in self.classes:
-            if controller.is_archetype:
-                return controller
-        return None
-
-    @property
     def is_freeplay(self) -> bool:
         return bool(self.flags.get("freeplay"))
 
     @property
     def basic_classes(self) -> int:
         return sum(1 for c in self.classes if c.class_type == "basic")
+
+    @property
+    def advanced_classes(self) -> int:
+        return sum(1 for c in self.classes if c.class_type == "advanced")
+
+    @property
+    def epic_classes(self) -> int:
+        return sum(1 for c in self.classes if c.class_type == "epic")
 
     @property
     def starting_class(self) -> class_controller.ClassController | None:
@@ -260,13 +265,6 @@ class TempestCharacter(base_engine.CharacterController):
         return classes
 
     @property
-    def archetype_legal_classes(self) -> list[class_controller.ClassController]:
-        """List of classes that are legal to be the character's archetype."""
-        classes = self.classes
-        max_level = max([c.value for c in classes], default=0)
-        return [c for c in classes if c.value == max_level]
-
-    @property
     def is_multiclass(self) -> bool:
         return len(self.classes) > 1
 
@@ -317,7 +315,7 @@ class TempestCharacter(base_engine.CharacterController):
         """The number of spell slots total or at a paritcular tier."""
         slot = int(expr.slot) if (expr and expr.slot is not None) else None
         count = 0
-        for sphere in ["arcane", "divine"]:
+        for sphere in ["arcane", "divine", "dual"]:
             if slot is not None:
                 count += self.get(f"{sphere}.spell_slots@{slot}")
             else:
@@ -429,12 +427,20 @@ class TempestCharacter(base_engine.CharacterController):
         return spellbook_controller.SphereAttribute("divine", self)
 
     @cached_property
+    def dual(self) -> spellbook_controller.SphereAttribute:
+        return spellbook_controller.SphereAttribute("dual", self)
+
+    @cached_property
     def spellbooks(self) -> list[spellbook_controller.SpellbookController]:
-        return [self.arcane.spellbook, self.divine.spellbook]
+        return [self.arcane.spellbook, self.divine.spellbook, self.dual.spellbook]
 
     @cached_property
     def powerbook(self) -> spellbook_controller.PowerbookController:
         return self.martial.powerbook
+
+    @cached_property
+    def form(self) -> base_engine.AttributeController:
+        return attribute_controllers.TagAttribute("form", self, "form")
 
     @cached_property
     def devotion(self) -> base_engine.AttributeController:
@@ -549,6 +555,8 @@ class TempestCharacter(base_engine.CharacterController):
             spheres.add("arcane")
         if self.get("basic-faith"):
             spheres.add("divine")
+        if self.get("universalist"):
+            spheres.add("dual")
         return spheres
 
     def get_costuming(self) -> models.CostumingData:
@@ -566,7 +574,11 @@ class TempestCharacter(base_engine.CharacterController):
 
     def issues(self) -> list[Issue]:
         issues = super().issues()
-        for spellbook in (self.arcane.spellbook, self.divine.spellbook):
+        for spellbook in (
+            self.arcane.spellbook,
+            self.divine.spellbook,
+            self.dual.spellbook,
+        ):
             if not spellbook:
                 continue
             if excess := spellbook.excess_spells:

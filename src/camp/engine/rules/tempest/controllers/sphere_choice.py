@@ -4,6 +4,7 @@ from camp.engine.rules.base_models import Discount
 from camp.engine.rules.decision import Decision
 
 from . import choice_controller
+from . import class_controller
 
 
 class SphereGrantChoice(choice_controller.GrantChoice):
@@ -68,10 +69,11 @@ class SphereGrantChoice(choice_controller.GrantChoice):
 
         # Rule 3: If the character does _not_ have a casting class, the spell in question must still
         # come from a class.
-        # TODO: The rules team might want to restrict this to just basic classes.
-        # As is, the skills that use this controller say nothing about the type of class the spell
-        # can come from.
         if not (parent := feat.parent) or not parent.feature_type == "class":
+            return False
+
+        parent: class_controller.ClassController
+        if parent.class_type != "basic":
             return False
 
         # Rule 4: If the character does _not_ have a casting class, the choice must come from a sphere

@@ -59,7 +59,7 @@ def table_lookup(table: dict[int, _T] | list[_T], key: int) -> _T:
         elif k > key:
             break
     if best is None:
-        raise ValueError("Did not find any values in table")
+        return 0
     return best
 
 
@@ -69,6 +69,16 @@ def table_reverse_lookup(table: dict[int, _T], value: _T) -> int:
             return k
     # Failure case: The value isn't in the table. Use the last key.
     return max(table.keys())
+
+
+def add_dict(a, b):
+    # Adds values from b into a. If present in both, the values will be added together.
+    for key in a.keys() | b.keys():
+        if key in a and key in b:
+            a[key] += b[key]
+        elif key in b:
+            a[key] = b[key]
+    return a
 
 
 class JSONEncoder(json.JSONEncoder):

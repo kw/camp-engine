@@ -32,6 +32,12 @@ class ChoiceController(base_engine.ChoiceController):
 
     @cached_property
     def definition(self) -> defs.ChoiceDef:
+        if not (
+            self._feature
+            and self._feature.definition
+            and self._feature.definition.choices
+        ):
+            return defs.ChoiceDef()
         return self._feature.definition.choices.get(self._choice) or defs.ChoiceDef()
 
     @cached_property
@@ -147,6 +153,8 @@ class ChoiceController(base_engine.ChoiceController):
 
     @property
     def _meets_req(self) -> Decision:
+        if not self.definition:
+            return Decision.OK
         if req := self.definition.requires:
             return self._feature.character.meets_requirements(req)
         return Decision.OK
@@ -166,7 +174,7 @@ class ChoiceController(base_engine.ChoiceController):
 
         if choice in choice_ranks:
             # Already taken. If this is a multi-choice, we need to increment the value.
-            if self.definition.multi:
+            if self.multi:
                 expr = PropExpression.parse(choice)
                 expr = expr.model_copy(update={"value": choice_ranks[choice]})
                 choices.remove(repr(expr))

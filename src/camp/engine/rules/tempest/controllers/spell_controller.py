@@ -12,10 +12,15 @@ from . import feature_controller
 
 class SpellController(feature_controller.FeatureController):
     definition: defs.Spell
-    can_buy_without_parent: bool = True
 
     @property
-    def sphere(self) -> Literal["arcane", "divine", None]:
+    def can_buy_without_parent(self) -> bool:
+        if self.parent.feature_type != "class":
+            return False
+        return self.parent.class_type == "basic"
+
+    @property
+    def sphere(self) -> Literal["arcane", "divine", "dual"]:
         return self.definition.sphere
 
     @property
@@ -43,19 +48,26 @@ class SpellController(feature_controller.FeatureController):
         # Spells of greater than 1st tier are (generally) not available to add to your
         # spellbook until you have spell slots of that tier from that class.
         if self.tier and self.tier > 1:
-            if not self.character.meets_requirements(
+            if (
+                self.parent.feature_type == "class"
+                and self.parent.class_type == "advanced"
+            ):
+                pass  # Advanced Class spells are always available
+            elif not self.character.meets_requirements(
                 f"{self.sphere}.spell_slots@{self.tier}"
             ):
                 return Decision(
                     success=False,
                     reason=f"Cannot purchase {self.display_name()} until you have spell slots of that tier.",
                 )
-        if self._spells_available() >= value:
+        available = self._spells_available()
+        if available >= value:
             return Decision.OK
         elif self.parent:
             return Decision(
                 success=False,
                 reason=f"Already purchased max {self.parent.display_name()} spells",
+                amount=max(available, 0),
             )
         else:
             return Decision(success=False)

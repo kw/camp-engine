@@ -30,6 +30,12 @@ class LifePointController(AttributeController):
         return super().value + self.character.base_lp
 
 
+class SpikesController(AttributeController):
+    @property
+    def value(self):
+        return super().value + self.character.base_spikes
+
+
 class SumAttribute(AttributeController):
     """Represents an attribute that aggregates over particular types of features.
 
@@ -42,7 +48,7 @@ class SumAttribute(AttributeController):
 
     character: base_engine.CharacterController
     _condition: str | None
-    _feature_type: str
+    _feature_type: str | None
 
     def __init__(
         self,
@@ -75,6 +81,50 @@ class SumAttribute(AttributeController):
             if self._feature_type and fc.feature_type != self._feature_type:
                 continue
             if self._condition is None or getattr(fc, self._condition, True):
+                yield fc
+
+
+class TagAttribute(AttributeController):
+    """Represents an attribute that aggregates over features with a given tag.
+
+    For example, the "form" attribute measures the number of spells known with the `form` tag.
+    """
+
+    character: base_engine.CharacterController
+    _tag: str
+    _feature_type: str | None
+
+    def __init__(
+        self,
+        prop_id: str,
+        character: base_engine.CharacterController,
+        tag: str,
+        feature_type: str | None = None,
+    ):
+        super().__init__(prop_id, character)
+        self._tag = tag
+        self._feature_type = feature_type
+
+    @property
+    def value(self) -> int:
+        total: int = super().value
+        for fc in self.matching_controllers():
+            total += fc.value
+        return total
+
+    @property
+    def max_value(self) -> int:
+        current: int = 0
+        for fc in self.matching_controllers():
+            if (v := fc.value) > current:
+                current = v
+        return current
+
+    def matching_controllers(self) -> Iterable[base_engine.BaseFeatureController]:
+        for fc in self.character.features.copy().values():
+            if self._feature_type and fc.feature_type != self._feature_type:
+                continue
+            if self._tag in fc.tags:
                 yield fc
 
 

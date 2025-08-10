@@ -111,11 +111,7 @@ class PowerbookController(attribute_controllers.AttributeController):
 
     @property
     def martial_classes(self) -> set[str]:
-        return {
-            f.id
-            for f in self.character.ruleset.features.values()
-            if f.type == "class" and f.sphere == "martial"
-        }
+        return {f.id for f in self.character.classes if f.martial}
 
 
 class SpellbookController(attribute_controllers.AttributeController):
@@ -217,8 +213,4 @@ class SpellbookController(attribute_controllers.AttributeController):
     @cached_property
     def classes_in_sphere(self) -> set[str]:
         """The set of classes in this sphere."""
-        return {
-            f.id
-            for f in self.character.ruleset.features.values()
-            if f.type == "class" and f.sphere == self.sphere
-        }
+        return {f.id for f in self.character.classes if f.sphere == self.sphere}

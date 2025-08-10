@@ -19,16 +19,18 @@ class CantripController(feature_controller.FeatureController):
         return 0
 
     @property
-    def sphere(self) -> Literal["arcane", "divine", None]:
+    def sphere(self) -> Literal["arcane", "divine", "dual"]:
         return self.definition.sphere
 
     def can_afford(self, value: int = 1) -> Decision:
-        if self._cantrips_available() >= value:
+        available = self._cantrips_available()
+        if available >= value:
             return Decision.OK
         elif self.parent:
             return Decision(
                 success=False,
-                reason=f"Already purchased max {self.parent.display_name} cantrips",
+                reason=f"Already purchased max {self.parent.display_name()} cantrips",
+                amount=max(available, 0),
             )
         else:
             return Decision(success=False)

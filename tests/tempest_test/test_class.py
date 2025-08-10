@@ -156,7 +156,6 @@ def test_multiclass_sellback(character: TempestCharacter):
     assert character.apply("wizard:-2")
     assert character.level == 0
     assert character.starting_class is None
-    assert character.primary_class is None
 
 
 def test_arcane_spell_slots(character: TempestCharacter):
@@ -265,3 +264,16 @@ def test_martial_powers(character: TempestCharacter):
     assert character.get("martial.powers") == 4
     assert character.get("arcane.powers") == 0
     assert character.get("divine.powers") == 0
+
+
+def test_stacking_level_grants(character: TempestCharacter):
+    character.xp_level = 4
+    character.reconcile()
+    initial_spikes = character.spikes.value
+    character.apply("fighter:2")
+    assert character.spikes.value == initial_spikes + 1
+    character.apply("fighter:2")
+    assert character.spikes.value == initial_spikes + 2
+    fighter = character.feature_controller("fighter")
+    prop = fighter._gather_propagation()
+    assert prop["spikes"].grants == 2

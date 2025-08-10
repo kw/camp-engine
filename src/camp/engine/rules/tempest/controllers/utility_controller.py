@@ -17,12 +17,14 @@ class UtilityController(feature_controller.FeatureController):
         return 0
 
     def can_afford(self, value: int = 1) -> Decision:
-        if self._utilities_available() >= value:
+        available = self._utilities_available()
+        if available >= value:
             return Decision.OK
         elif self.parent:
             return Decision(
                 success=False,
                 reason=f"Already purchased max {self.parent.display_name()} utilities",
+                available=max(available, 0),
             )
         else:
             return Decision(success=False)

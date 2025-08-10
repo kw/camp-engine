@@ -30,7 +30,6 @@ _NO_FLAG = Decision(success=False, reason="Plot approval is required.")
 _SUBFEATURE_TYPES: set[str] = {
     "subfeature",
     "innate",
-    "archetype",
     "devotion",
     "subbreed",
     "breedchallenge",
@@ -105,6 +104,10 @@ class FeatureController(base_engine.BaseFeatureController):
         if not self.meets_requirements:
             return True
         return False
+
+    @property
+    def max_attained(self) -> bool:
+        return self.value >= self.max_ranks
 
     @property
     def flags_fulfilled(self) -> bool:
@@ -832,22 +835,27 @@ class FeatureController(base_engine.BaseFeatureController):
 
     def _gather_propagation(self) -> dict[str, base_engine.PropagationData]:
         # Basic grants that are always provided by the feature.
+        grants = {}
+        ranks = self.value
         if grant_def := self.definition.grants:
-            grants = self._gather_grants(grant_def)
-        else:
-            grants = {}
+            granted = self._gather_grants(grant_def)
+            utils.add_dict(grants, granted)
+            if self.definition.grants_per_rank:
+                for rank in range(ranks - 1):
+                    utils.add_dict(grants, granted)
+
         # Handle the rank grant table, if present. This table is keyed by the number of ranks
         # purchased in the feature, and the value is a dict of grants to apply. You get all
         # grants on the table up to your current rank level.
         if self.definition.rank_grants:
-            for rank in range(self.value + 1):
+            for rank in range(ranks + 1):
                 if grant := self.definition.rank_grants.get(rank):
-                    grants.update(self._gather_grants(grant))
+                    utils.add_dict(grants, self._gather_grants(grant))
         # Handle conditional grants (grant_if).
         if self.definition.grant_if:
             for grant, requires in self.definition.grant_if.items():
                 if self.character.meets_requirements(requires, self.full_id):
-                    grants.update(self._gather_grants(grant))
+                    utils.add_dict(grants, self._gather_grants(grant))
 
         # Innate features
         for feature in self.innate_powers:
@@ -855,7 +863,7 @@ class FeatureController(base_engine.BaseFeatureController):
                 grants[feature.id] = 1
 
         # Subclasses might have other grants that the produce. Add them in.
-        grants.update(self.extra_grants())
+        utils.add_dict(grants, self.extra_grants())
 
         # Collect discounts, if present.
         if discount_def := getattr(self.definition, "discounts", None):

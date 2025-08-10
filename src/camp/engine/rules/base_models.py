@@ -96,6 +96,7 @@ ALWAYS = Always()
 
 
 class AnyOf(BoolExpr):
+    at_least: int = 1
     any: list[Requirement]
 
     def evaluate(
@@ -104,13 +105,20 @@ class AnyOf(BoolExpr):
         overrides: dict[str, int] | None = None,
     ) -> Decision:
         messages: list[str] = []
+        successes = 0
         for expr in self.any:
             if isinstance(expr, str):
                 raise TypeError(f"Expression '{expr}' expected to be parsed by now.")
             if rd := expr.evaluate(char, overrides=overrides):
-                return rd
-            messages.append(rd.reason or "[unspecified failure reason]")
-        return Decision(success=False, reason=f"AnyOf({'; '.join(messages)})")
+                successes += 1
+                if successes >= self.at_least:
+                    return rd
+            else:
+                messages.append(rd.reason or "[unspecified failure reason]")
+        return Decision(
+            success=False,
+            reason=f"AnyOf({'; '.join(messages)}, needed {self.at_least - successes} more)",
+        )
 
     def identifiers(self) -> set[str]:
         ids = set()
@@ -345,17 +353,20 @@ def parse_req(req: Any) -> Requirement:
             return AllOf(
                 all=[RequirementAdapter.validate_python(r) for r in requirements]
             )
-        case {"all": [*requirements]}:
+        case {"all": [*requirements], **rest}:
             return AllOf(
-                all=[RequirementAdapter.validate_python(r) for r in requirements]
+                all=[RequirementAdapter.validate_python(r) for r in requirements],
+                **rest,
             )
-        case {"any": [*requirements]}:
+        case {"any": [*requirements], **rest}:
             return AnyOf(
-                any=[RequirementAdapter.validate_python(r) for r in requirements]
+                any=[RequirementAdapter.validate_python(r) for r in requirements],
+                **rest,
             )
-        case {"none": [*requirements]}:
+        case {"none": [*requirements], **rest}:
             return NoneOf(
-                none=[RequirementAdapter.validate_python(r) for r in requirements]
+                none=[RequirementAdapter.validate_python(r) for r in requirements],
+                **rest,
             )
         case {"prop": _}:
             return PropExpression(**req)
