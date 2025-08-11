@@ -242,11 +242,8 @@ class ClassController(feature_controller.FeatureController):
     def powers_available(self) -> spellbook_controller.TierTuple:
         if not self.powerbook:
             return spellbook_controller.EMPTY_TIER
-        return (
-            self.character.get(f"{self.full_id}.powers@1"),
-            self.character.get(f"{self.full_id}.powers@2"),
-            self.character.get(f"{self.full_id}.powers@3"),
-            self.character.get(f"{self.full_id}.powers@4"),
+        return self.powerbook.powers_available_per_class.get(
+            self.full_id, spellbook_controller.EMPTY_TIER
         )
 
     def issues(self) -> list[Issue] | None:
