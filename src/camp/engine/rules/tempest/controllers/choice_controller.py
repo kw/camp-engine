@@ -535,7 +535,10 @@ class AccessibleClassPowerChoice(GrantChoice):
         if not feat.meets_requirements:
             return False
 
-        if feat.feature_type == "power" and (tier := getattr(feat, "tier", None)):
+        if feat.parent.class_type != "basic":
+            # Once we've reached advanced classes, this no longer matters.
+            return True
+        elif feat.feature_type == "power" and (tier := getattr(feat, "tier", None)):
             # If the power has a tier, it must be one that the character has access to in its parent class.
             if character.get(f"{parent.full_id}.powers@{tier}") <= 0:
                 return False
