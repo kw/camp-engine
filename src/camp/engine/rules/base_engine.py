@@ -873,9 +873,10 @@ class BaseFeatureController(PropertyController):
     ) -> dict[str, BaseFeatureController]:
         if not self.option_def:
             return {}
+        features = list(self.character.features.values())
         controllers = {
             c.option: c
-            for c in self.character.features.values()
+            for c in features
             if c.id == self.id and c.option and c.value > 0
         }
         if not taken and (options := self.available_options):
