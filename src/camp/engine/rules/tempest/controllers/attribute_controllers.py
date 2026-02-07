@@ -257,9 +257,10 @@ class FlagController(AttributeController):
 
     @property
     def value(self) -> int:
+        base = super().value
         if option := self.option:
             v = self.character.model.metadata.flags.get(option, None)
             if isinstance(v, (int, float)):
-                return int(v)
-            return bool(v)
+                return int(v) + base
+            return bool(v) or base
         return 0
