@@ -63,10 +63,8 @@ def load_ruleset(
     feature_defs = ruleset.feature_model_types()
     if not _verify_feature_model_class(feature_defs):
         raise ValueError(
-            textwrap.dedent(
-                f"""Feature definition must be a pydantic model or union
-                of pydantic models, but got `{feature_defs}` instead."""
-            )
+            textwrap.dedent(f"""Feature definition must be a pydantic model or union
+                of pydantic models, but got `{feature_defs}` instead.""")
         )
     feature_types = _feature_model_map(feature_defs)
     feature_dict: dict[str, base_models.BaseFeatureDef] = {}
