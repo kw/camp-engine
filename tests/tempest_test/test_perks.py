@@ -115,3 +115,17 @@ def test_patron_discount_applied(character: TempestCharacter):
     assert character.cp.spent_cp == 4 + 2 + 1 + 2
     assert discount.choose("advanced-perk")
     assert character.cp.spent_cp == 4 + 2 + 1 + 1
+
+
+def test_remembered_perk(character: TempestCharacter):
+    decision = character.apply("remembered-perk")
+    assert decision
+    assert character.model.metadata.flags["remembered-perk"] == 1
+    assert decision.metadata_update
+    assert decision.metadata_update.character_flags == {"remembered-perk": 1}
+
+
+def test_nonremembered_perk(character: TempestCharacter):
+    decision = character.apply("basic-perk")
+    assert decision
+    assert decision.metadata_update is None

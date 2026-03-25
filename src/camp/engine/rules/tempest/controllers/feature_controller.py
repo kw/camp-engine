@@ -15,6 +15,7 @@ from camp.engine.rules.base_models import Discount
 from camp.engine.rules.base_models import Issue
 from camp.engine.rules.base_models import PropExpression
 from camp.engine.rules.decision import Decision
+from camp.engine.rules.decision import MetadataUpdate
 
 from .. import defs
 from .. import models
@@ -757,8 +758,28 @@ class FeatureController(base_engine.BaseFeatureController):
             return Decision.NEEDS_OPTION_FAIL
         self.purchased_ranks += value
         self.reconcile()
+        metadata_update = self.remember()
 
-        return Decision(success=True, amount=self.value, mutation_applied=True)
+        return Decision(
+            success=True,
+            amount=self.value,
+            mutation_applied=True,
+            metadata_update=metadata_update,
+        )
+
+    def remember(self) -> bool:
+        if self.definition.remember is False:
+            return
+        flag_name = (
+            self.id if self.definition.remember is True else self.definition.remember
+        )
+        value = self.value
+        if self.character.model.metadata.flags.get(flag_name, 0) < value:
+            self.character.model.metadata.flags[flag_name] = value
+            return MetadataUpdate(
+                description=f"Remembering purchase: {self.display_name()}",
+                character_flags={flag_name: value},
+            )
 
     @property
     def option_parent(self) -> FeatureController | None:

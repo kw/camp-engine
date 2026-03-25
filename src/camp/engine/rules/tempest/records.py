@@ -41,6 +41,7 @@ class AwardCategory(StrEnum):
         "point-purchase"  # Awards purchased using Service Points or equivalent.
     )
     PLOT = "plot"  # Plot-based awards.
+    CHARACTER = "character"  # Inflicted due character sheet operations.
 
     @property
     def label(self) -> str:
@@ -172,7 +173,8 @@ class CharacterRecord(BaseModel, frozen=True):
       backstory_approved: Flags that this character should receive +2 CP due to an approved backstory.
       events_played: Number of events attended as a PC.
       last_played: Last date when this character was used as a PC.
-      flags: Dictionary of flag values awarded to this character in particular. These may override player-level flags.
+      flags: Dictionary of flag values awarded to this character in particular. These may override
+        player-level flags.
         Examples include advanced class unlock flags, role flags, etc.
       grants: A list of straight-up bonus grants in the same format used by the character sheet engine.
         For example, to grant a character 3 bonus life points from a deal with The Dark, enter "lp:3".

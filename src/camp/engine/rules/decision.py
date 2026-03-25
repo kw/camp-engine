@@ -3,10 +3,19 @@ from __future__ import annotations
 import traceback as tb
 from typing import Any
 from typing import ClassVar
+from typing import TypeAlias
 
 import pydantic
 from pydantic import BaseModel
 from pydantic import Field
+
+FlagValue: TypeAlias = bool | int | float | str | None
+FlagValues: TypeAlias = list[FlagValue] | FlagValue
+
+
+class MetadataUpdate(BaseModel, frozen=True):
+    description: str
+    character_flags: dict[str, FlagValue] | None = None
 
 
 class Decision(BaseModel, frozen=True):
@@ -37,6 +46,7 @@ class Decision(BaseModel, frozen=True):
     mutation_applied: bool = False
     exception: str | None = Field(default=None, repr=False)
     traceback: str | None | bool = Field(default=None, repr=False)
+    metadata_update: MetadataUpdate | None = None
 
     OK: ClassVar[Decision]
     NO: ClassVar[Decision]

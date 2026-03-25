@@ -168,6 +168,7 @@ class BaseFeatureDef(base_models.BaseFeatureDef, PowerCard):
     subcard: PowerCard | list[PowerCard] | None = None
     child_purchase: ChildPurchaseDef | None = None
     use_purchase_limit: bool = False
+    remember: bool | str = False
 
     def post_validate(self, ruleset: base_models.BaseRuleset) -> None:
         super().post_validate(ruleset)
