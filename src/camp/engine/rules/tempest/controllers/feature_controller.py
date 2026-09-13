@@ -1043,7 +1043,9 @@ class FeatureController(base_engine.BaseFeatureController):
         match cd := self.cost_def:
             case int():
                 # Relatively trivial case
-                return min(available_ranks, math.floor(available / cd))
+                if cd > 0:
+                    return min(available_ranks, math.floor(available / cd))
+                return available_ranks
             case defs.CostByRank():
                 granted_ranks = self.bonus
                 while available_ranks > 0:
